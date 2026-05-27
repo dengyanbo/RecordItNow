@@ -1,0 +1,105 @@
+# NOTICE
+
+RIN — Record It Now is distributed under the MIT License (see `LICENSE`).
+This NOTICE file enumerates the third-party software that RIN links to at
+runtime, along with the licenses under which we use them. All licenses
+listed here are compatible with redistribution of RIN under the MIT
+License.
+
+If you redistribute RIN binaries or a derived work, you must keep this
+file alongside `LICENSE`.
+
+----------------------------------------------------------------------
+Bundled SVG icons (`src/rin/ui/assets/`) — v0.3.0+
+----------------------------------------------------------------------
+
+  Fluent UI System Icons
+    https://github.com/microsoft/fluentui-system-icons
+    Copyright (c) Microsoft Corporation. MIT License.
+
+    Specific icons bundled with RIN (all "*_24_regular" or "*_24_filled"):
+      record, camera, play, pause, settings, search, document, lightbulb,
+      clock, mic, color, dismiss, calendar, keyboard, save, folder, chat,
+      send, info, checkmark.
+
+----------------------------------------------------------------------
+Dynamically linked Python packages (installed by `pip install rin[all]`)
+----------------------------------------------------------------------
+
+Permissive licenses (MIT / Apache 2.0 / BSD / PSF / ISC / MPL 2.0):
+
+  PySide6 / shiboken6              LGPL-3.0 (or GPL-2.0/3.0)*
+  SQLAlchemy                       MIT
+  chromadb                         Apache-2.0
+  mss                              MIT
+  sounddevice / PortAudio          MIT
+  numpy                            BSD-3-Clause
+  pywin32                          PSF-2.0
+  keyboard                         MIT
+  pynput                           LGPL-3.0*
+  hidapi (Python bindings)         BSD-3-Clause**
+  APScheduler                      MIT
+  rapidocr-onnxruntime             Apache-2.0
+  onnxruntime                      MIT
+  faster-whisper                   MIT
+  CTranslate2                      MIT
+  Pillow                           MIT-CMU
+  sentence-transformers            Apache-2.0
+  transformers                     Apache-2.0
+  tokenizers                       Apache-2.0
+  torch                            BSD-3-Clause
+  scikit-learn                     BSD-3-Clause
+  openai (Python SDK)              Apache-2.0
+  keyring                          MIT
+  Jinja2                           BSD-3-Clause
+  markdown                         BSD-3-Clause
+  pydantic / pydantic-settings     MIT
+  loguru                           MIT
+  tomli-w                          MIT
+  platformdirs                     MIT
+  loguru                           MIT
+  click / typer / rich             BSD-3-Clause / MIT / MIT
+  certifi                          MPL-2.0
+  ffmpeg-python (subprocess only)  not bundled (see below)
+
+  * LGPL-3.0 components are linked dynamically through normal Python
+    imports. The LGPL grants this usage; if you redistribute RIN you
+    must preserve this notice and avoid statically linking these
+    libraries. PySide6 specifically offers an LGPL-3.0 OR GPL option;
+    we elect LGPL-3.0.
+
+  ** The hidapi Python package is dual-licensed (BSD-3-Clause OR
+    GPL-3.0). RIN uses it under BSD-3-Clause.
+
+----------------------------------------------------------------------
+External binaries (NOT bundled — installed separately by the user)
+----------------------------------------------------------------------
+
+  FFmpeg
+    https://ffmpeg.org/
+    LGPL or GPL depending on the build. RIN never bundles the FFmpeg
+    binary; the installer script suggests `winget install Gyan.FFmpeg`
+    and RIN invokes it only as a subprocess. No FFmpeg headers or
+    libraries are linked into RIN.
+
+  GitHub Copilot CLI
+    https://docs.github.com/copilot/how-tos/copilot-cli
+    Proprietary, owned by GitHub. RIN only invokes it as a subprocess
+    when the user explicitly selects "copilot_cli" as the LLM provider.
+    The user must be signed in via `copilot login`.
+
+  Pre-downloaded ML model weights
+    sentence-transformers/all-MiniLM-L6-v2  — Apache-2.0
+    Whisper (OpenAI, faster-whisper conversion) — MIT
+    RapidOCR ONNX models                     — Apache-2.0
+    All weights are downloaded by `scripts/prefetch_models.py` or on
+    first use from Hugging Face / model authors' CDNs.
+
+----------------------------------------------------------------------
+Attributions
+----------------------------------------------------------------------
+
+This project would not exist without the work of countless open-source
+contributors. Special thanks to the maintainers of FFmpeg, the Qt
+Project (via PySide6), the chromadb / sentence-transformers /
+faster-whisper / rapidocr teams, and the broader Python community.

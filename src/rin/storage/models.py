@@ -1,0 +1,156 @@
+"""SQLAlchemy ORM models for RIN's metadata database.
+
+Schema summary
+--------------
+* ``captures``        — one row per screenshot or recording session.
+* ``capture_files``   — physical files belonging to a capture, one per monitor / stream.
+* ``monitors``        — last-seen geometry per physical display.
+* ``analyses``        — per-capture LLM summary + OCR text + entities.
+* ``transcripts``     — Whisper output for video captures.
+* ``reports``         — generated daily / weekly markdown rollups.
+* ``tags`` + ``capture_tags`` — user / auto tagging (many-to-many).
+* ``key_value``       — runtime state the user never directly edits.
+"""
+from __future__ import annotations
+
+from datetime import datetime
+
+from sqlalchemy import BigInteger, ForeignKey, String, Text, UniqueConstraint, func
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class Capture(Base):
+    __tablename__ = "captures"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(16))  # "screenshot" | "video"
+    status: Mapped[str] = mapped_column(String(32), default="pending")
+    started_at: Mapped[datetime] = mapped_column(default=func.now(), index=True)
+    ended_at: Mapped[datetime | None] = mapped_column(default=None)
+    duration_ms: Mapped[int | None] = mapped_column(default=None)
+    file_size: Mapped[int | None] = mapped_column(BigInteger, default=None)
+    folder: Mapped[str | None] = mapped_column(Text, default=None)
+    notes: Mapped[str | None] = mapped_column(Text, default=None)
+
+    files: Mapped[list[CaptureFile]] = relationship(
+        back_populates="capture", cascade="all, delete-orphan"
+    )
+    analyses: Mapped[list[Analysis]] = relationship(
+        back_populates="capture", cascade="all, delete-orphan"
+    )
+    transcripts: Mapped[list[Transcript]] = relationship(
+        back_populates="capture", cascade="all, delete-orphan"
+    )
+    tags: Mapped[list[Tag]] = relationship(
+        secondary="capture_tags", back_populates="captures"
+    )
+
+
+class CaptureFile(Base):
+    __tablename__ = "capture_files"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    capture_id: Mapped[int] = mapped_column(
+        ForeignKey("captures.id", ondelete="CASCADE"), index=True
+    )
+    monitor_index: Mapped[int]
+    path: Mapped[str] = mapped_column(Text)
+    media_type: Mapped[str] = mapped_column(String(32))  # image/png, video/mp4, audio/wav
+    width: Mapped[int | None] = mapped_column(default=None)
+    height: Mapped[int | None] = mapped_column(default=None)
+    file_size: Mapped[int | None] = mapped_column(BigInteger, default=None)
+
+    capture: Mapped[Capture] = relationship(back_populates="files")
+
+
+class Monitor(Base):
+    __tablename__ = "monitors"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    device_name: Mapped[str] = mapped_column(String(255), unique=True)
+    x: Mapped[int]
+    y: Mapped[int]
+    width: Mapped[int]
+    height: Mapped[int]
+    is_primary: Mapped[bool] = mapped_column(default=False)
+    last_seen_at: Mapped[datetime] = mapped_column(default=func.now())
+
+
+class Analysis(Base):
+    __tablename__ = "analyses"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    capture_id: Mapped[int] = mapped_column(
+        ForeignKey("captures.id", ondelete="CASCADE"), index=True
+    )
+    summary: Mapped[str | None] = mapped_column(Text, default=None)
+    ocr_text: Mapped[str | None] = mapped_column(Text, default=None)
+    entities_json: Mapped[str | None] = mapped_column(Text, default=None)
+    llm_provider: Mapped[str | None] = mapped_column(String(32), default=None)
+    llm_model: Mapped[str | None] = mapped_column(String(128), default=None)
+    created_at: Mapped[datetime] = mapped_column(default=func.now(), index=True)
+
+    capture: Mapped[Capture] = relationship(back_populates="analyses")
+
+
+class Transcript(Base):
+    __tablename__ = "transcripts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    capture_id: Mapped[int] = mapped_column(
+        ForeignKey("captures.id", ondelete="CASCADE"), index=True
+    )
+    text: Mapped[str] = mapped_column(Text)
+    language: Mapped[str | None] = mapped_column(String(16), default=None)
+    segments_json: Mapped[str | None] = mapped_column(Text, default=None)
+    created_at: Mapped[datetime] = mapped_column(default=func.now())
+
+    capture: Mapped[Capture] = relationship(back_populates="transcripts")
+
+
+class Report(Base):
+    __tablename__ = "reports"
+    __table_args__ = (UniqueConstraint("kind", "period_start", "period_end"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    period_start: Mapped[datetime]
+    period_end: Mapped[datetime]
+    kind: Mapped[str] = mapped_column(String(16))  # "daily" | "weekly" | "custom"
+    markdown_path: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(default=func.now())
+
+
+class Tag(Base):
+    __tablename__ = "tags"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(64), unique=True)
+
+    captures: Mapped[list[Capture]] = relationship(
+        secondary="capture_tags", back_populates="tags"
+    )
+
+
+class CaptureTag(Base):
+    __tablename__ = "capture_tags"
+
+    capture_id: Mapped[int] = mapped_column(
+        ForeignKey("captures.id", ondelete="CASCADE"), primary_key=True
+    )
+    tag_id: Mapped[int] = mapped_column(
+        ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True
+    )
+
+
+class KeyValue(Base):
+    """Runtime state the user never directly edits (last-run timestamps, panic-pause expiry, …)."""
+
+    __tablename__ = "key_value"
+
+    key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    value: Mapped[str] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(default=func.now(), onupdate=func.now())
