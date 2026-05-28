@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .icon import make_icon, make_recording_icon
+from .icon import icon_size_for, make_icon, make_recording_icon, tinted_icon
 from .notifications import notify
 from .settings_dialog import SettingsDialog
 from .style import palette_to_qss
@@ -53,11 +53,13 @@ __all__ = [
     "TrayApp",
     "contrast_ratio",
     "icon_path",
+    "icon_size_for",
     "make_icon",
     "make_recording_icon",
     "notify",
     "palette_to_qss",
     "resolve",
     "system_theme",
+    "tinted_icon",
     "with_accent",
 ]

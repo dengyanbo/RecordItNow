@@ -28,7 +28,7 @@ class Theme:
     """A complete color palette + a handful of layout tokens.
 
     Tokens follow Fluent 2 specs:
-      - Body 14px / Caption 12px / Subtitle 16px Semibold / Title 24px Semibold
+      - Body 14px / Caption 12px / Subtitle 16px Semibold / Title 1 28px Semibold
       - 4 / 8 / 12 / 16 / 24 px spacing grid
       - Button corner radius 4 px, card 8 px
       - Standard control height 32 px
@@ -41,7 +41,9 @@ class Theme:
     surface: str       # cards, dialogs
     surface_alt: str   # input fields, hover state
     surface_hover: str # subtle hover on list rows
+    surface_card: str  # raised card background (slightly different from surface)
     border: str        # 1 px outlines
+    border_strong: str # dividers + selected outlines
 
     # text
     text: str          # primary text
@@ -52,6 +54,7 @@ class Theme:
     accent: str        # primary action color
     accent_hover: str  # hover on accent
     accent_pressed: str
+    accent_subtle: str # tinted fill behind accent text (selected nav, user bubble)
     on_accent: str     # text/icon color drawn on accent fills
 
     success: str
@@ -62,17 +65,22 @@ class Theme:
     selection_bg: str  # list row selection
     scrollbar: str
     scrollbar_hover: str
+    focus_ring: str    # 2 px focus outline color (mostly accent w/ alpha)
 
     # layout — Fluent 2 ramp
     radius_button: int = 4
     radius_card: int = 8
     radius_window: int = 8
+    radius_chip: int = 12
 
     # type ramp (point-size for Qt, roughly Fluent 2 pixel values @ 96 DPI)
-    font_size_caption: int = 9     # 12 px @ 96 DPI
-    font_size_body: int = 10       # 14 px
-    font_size_subtitle: int = 12   # 16 px Semibold
-    font_size_title: int = 16      # 22 px Semibold (Title 3 ≈ 24 px @ slightly tighter)
+    # Title 1 / Subtitle / Body / Caption — Fluent 2 typographic ramp.
+    font_size_caption: int = 9       # 12 px
+    font_size_body: int = 10         # 14 px
+    font_size_body_strong: int = 10  # 14 px Semibold (same size, different weight)
+    font_size_subtitle: int = 12     # 16 px Semibold
+    font_size_title: int = 16        # 22 px Semibold — section heading (h1 on page)
+    font_size_display: int = 22      # 28 px Semibold — window/page hero heading
 
     # spacing — Fluent 2 grid
     space_xs: int = 4
@@ -85,8 +93,12 @@ class Theme:
     padding_compact: int = 6
     padding_comfortable: int = 8
 
-    # font family
-    font_family: str = "'Segoe UI Variable', 'Segoe UI', Arial, sans-serif"
+    # font families — Windows 11 ships the variable family. Older Win 10 falls back.
+    font_family: str = "'Segoe UI Variable', 'Segoe UI Variable Text', 'Segoe UI', Arial, sans-serif"
+    font_family_display: str = (
+        "'Segoe UI Variable Display', 'Segoe UI Variable', 'Segoe UI Semibold', "
+        "'Segoe UI', Arial, sans-serif"
+    )
 
     # backwards-compat alias (old code reads ``.font_size_pt``)
     @property
@@ -100,13 +112,16 @@ LIGHT = Theme(
     surface="#FFFFFF",
     surface_alt="#FAFAFA",
     surface_hover="#F0F0F0",
-    border="#E5E5E5",
+    surface_card="#FFFFFF",
+    border="#D6D6D6",
+    border_strong="#B5B5B5",
     text="#1F1F1F",
-    text_muted="#5C5C5C",
+    text_muted="#616161",
     text_disabled="#A0A0A0",
     accent="#0078D4",
     accent_hover="#106EBE",
     accent_pressed="#005A9E",
+    accent_subtle="#E5F1FB",
     on_accent="#FFFFFF",
     success="#107C10",
     warning="#C19C00",
@@ -114,6 +129,7 @@ LIGHT = Theme(
     selection_bg="#CCE4F7",
     scrollbar="#C8C8C8",
     scrollbar_hover="#A0A0A0",
+    focus_ring="#0078D4",
 )
 
 
@@ -123,13 +139,16 @@ DARK = Theme(
     surface="#2B2B2B",
     surface_alt="#323232",
     surface_hover="#3A3A3A",
-    border="#3F3F3F",
+    surface_card="#2D2D2D",
+    border="#484848",
+    border_strong="#5A5A5A",
     text="#F5F5F5",
-    text_muted="#B0B0B0",
+    text_muted="#C7C7C7",
     text_disabled="#6C6C6C",
     accent="#60CDFF",
     accent_hover="#4FB8E8",
     accent_pressed="#3DA1CC",
+    accent_subtle="#1B3D52",
     on_accent="#000000",
     success="#6CCB5F",
     warning="#FCE100",
@@ -137,6 +156,7 @@ DARK = Theme(
     selection_bg="#163E5C",
     scrollbar="#5A5A5A",
     scrollbar_hover="#7A7A7A",
+    focus_ring="#60CDFF",
 )
 
 
@@ -193,8 +213,33 @@ def with_accent(theme: Theme, accent_name: str) -> Theme:
     if accent_name not in ACCENTS:
         return theme
     accent = ACCENTS[accent_name][theme.name]
-    return replace(theme, accent=accent, accent_hover=_shade(accent, -0.10),
-                   accent_pressed=_shade(accent, -0.20))
+    # accent_subtle is the accent colour mixed with the bg so it reads as a
+    # gentle tint behind selected nav rows / user chat bubbles. We can't
+    # rely on QSS alpha (it doesn't render correctly behind a parent that
+    # already has a colour), so pre-compute a flat blend.
+    mix = 0.86 if theme.name == "light" else 0.78
+    subtle = _mix(accent, theme.bg, mix)
+    return replace(
+        theme,
+        accent=accent,
+        accent_hover=_shade(accent, -0.10),
+        accent_pressed=_shade(accent, -0.20),
+        accent_subtle=subtle,
+        focus_ring=accent,
+    )
+
+
+def _mix(fg: str, bg: str, bg_amount: float) -> str:
+    """Linear blend of two ``#rrggbb`` colors. ``bg_amount`` 0..1."""
+
+    fg_hex, bg_hex = fg.lstrip("#"), bg.lstrip("#")
+    fr, fg_, fb = (int(fg_hex[i : i + 2], 16) for i in (0, 2, 4))
+    br, bg_g, bb = (int(bg_hex[i : i + 2], 16) for i in (0, 2, 4))
+    a = max(0.0, min(1.0, bg_amount))
+    r = int(fr * (1 - a) + br * a)
+    g = int(fg_ * (1 - a) + bg_g * a)
+    b = int(fb * (1 - a) + bb * a)
+    return f"#{r:02X}{g:02X}{b:02X}"
 
 
 def _shade(hex_color: str, amount: float) -> str:

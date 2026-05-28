@@ -95,3 +95,63 @@ def test_default_config_includes_ui_section() -> None:
     assert cfg.ui.theme == "auto"
     assert cfg.ui.accent == "blue"
     assert cfg.ui.density == "comfortable"
+
+
+def test_with_accent_derives_subtle_and_focus_ring() -> None:
+    """``with_accent`` should populate ``accent_subtle`` + ``focus_ring``."""
+
+    tweaked = with_accent(LIGHT, "purple")
+    # accent_subtle is the accent mixed into the bg → should NOT equal the
+    # raw accent, and should be lighter (closer to bg in luminance).
+    assert tweaked.accent_subtle != tweaked.accent
+    assert relative_luminance(tweaked.accent_subtle) > relative_luminance(tweaked.accent)
+    # focus ring tracks the active accent.
+    assert tweaked.focus_ring == tweaked.accent
+
+
+def test_dark_theme_accent_subtle_is_darker_than_bg() -> None:
+    """For dark themes the subtle accent should sit below body luminance.
+
+    Otherwise a "subtle" fill would punch out brighter than the surface
+    and feel like a primary highlight.
+    """
+
+    tweaked = with_accent(DARK, "blue")
+    assert relative_luminance(tweaked.accent_subtle) < relative_luminance(tweaked.text)
+
+
+def test_palette_to_qss_new_polish_roles() -> None:
+    """v0.4.1 polish: new selectors (chip, bubble, search-attached…) render."""
+
+    qss = palette_to_qss(LIGHT)
+    for marker in (
+        'role="chip"',
+        'role="user-bubble"',
+        'role="agent-bubble"',
+        'role="search"',
+        'role="search-attached"',
+        'role="field-hint"',
+        'role="divider-vert"',
+        'role="icon"',
+        'heading="hero"',
+        'heading="subtle"',
+    ):
+        assert marker in qss, f"missing selector for {marker}"
+
+
+def test_palette_to_qss_focus_ring_renders() -> None:
+    """Every input class should grow a 2 px focus ring tinted to focus_ring."""
+
+    qss = palette_to_qss(LIGHT)
+    # The focus pseudo-state should appear at least once next to a 2 px solid border.
+    assert ":focus" in qss
+    assert "border: 2px solid" in qss
+
+
+def test_typography_tokens_are_ordered() -> None:
+    """caption < body < subtitle < title < display in point size."""
+
+    assert LIGHT.font_size_caption < LIGHT.font_size_body
+    assert LIGHT.font_size_body < LIGHT.font_size_subtitle
+    assert LIGHT.font_size_subtitle <= LIGHT.font_size_title
+    assert LIGHT.font_size_title < LIGHT.font_size_display

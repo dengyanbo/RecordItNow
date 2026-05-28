@@ -1,30 +1,13 @@
-"""Search & RAG Q&A window — v0.3.0 Fluent-inspired redesign.
+"""Search & RAG Q&A window — v0.4.1 polish pass.
 
-Layout:
-
-  ┌────────────────────────────────────────────────────────────────┐
-  │ Search captures                                                 │
-  │ ┌──────────────────────────────────────────┐ ┌──────┐           │
-  │ │ semantic query…                          │ │  🔎  │           │
-  │ └──────────────────────────────────────────┘ └──────┘           │
-  │                                                                 │
-  │ ┌── results ────────────────────────────────────────────────┐   │
-  │ │ [card]  [card]  [card]  [card] …                          │   │
-  │ └───────────────────────────────────────────────────────────┘   │
-  │                                                                 │
-  │ Ask                                                             │
-  │ ┌── chat history ───────────────────────────────────────────┐   │
-  │ │ user bubble (right)                                        │   │
-  │ │ agent bubble (left)  • citations: cap-3 · cap-7            │   │
-  │ └───────────────────────────────────────────────────────────┘   │
-  │ ┌──────────────────────────────────────────┐ ┌──────┐           │
-  │ │ ask anything…                            │ │ Send │           │
-  │ └──────────────────────────────────────────┘ └──────┘           │
-  └────────────────────────────────────────────────────────────────┘
+Single column with a combined search bar (attached button), result
+cards, and a chat thread below for the RAG agent. Both empty states use
+tinted SVG icons; user bubbles use ``accent_subtle`` and right-align,
+agent bubbles use the surface colour and left-align with a tail.
 """
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal
+from PySide6.QtCore import QObject, QRunnable, QSize, Qt, QThreadPool, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -43,19 +26,36 @@ from ..config import RinConfig
 from ..rag.agent import Answer, RAGAgent
 from ..rag.search import SearchHit, search
 from ..utils.logging import get_logger
+from .icon import tinted_icon
 
 log = get_logger(__name__)
 
 
 class _SearchEmptyState(QWidget):
-    """Centered placeholder for the search-results / chat areas."""
+    """Centered placeholder for the search-results / chat areas, with icon."""
 
-    def __init__(self, title: str, hint: str, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        title: str,
+        hint: str,
+        *,
+        icon_name: str = "search",
+        icon_color: str = "#9E9E9E",
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(40, 40, 40, 40)
-        layout.setSpacing(6)
+        layout.setContentsMargins(40, 24, 40, 24)
+        layout.setSpacing(8)
         layout.addStretch()
+
+        self._icon_label = QLabel()
+        self._icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._icon_label.setPixmap(
+            tinted_icon(icon_name, icon_color, sizes=(40,)).pixmap(QSize(40, 40))
+        )
+        layout.addWidget(self._icon_label)
+
         self._title = QLabel(title)
         self._title.setProperty("role", "empty-state-title")
         self._title.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -63,7 +63,8 @@ class _SearchEmptyState(QWidget):
         self._hint.setProperty("role", "empty-state-hint")
         self._hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._hint.setWordWrap(True)
-        layout.addWidget(self._title)
+        self._hint.setMinimumHeight(48)
+        layout.addWidget(self._title, 0, Qt.AlignmentFlag.AlignHCenter)
         layout.addWidget(self._hint)
         layout.addStretch()
 
@@ -108,19 +109,24 @@ class _AskTask(QRunnable):
 def _result_card(hit: SearchHit) -> QWidget:
     card = QFrame()
     card.setObjectName("card")
-    when = hit.started_at.strftime("%Y-%m-%d %H:%M") if hit.started_at else "—"
-    head = QLabel(f"cap-{hit.capture_id}  ·  {when}")
-    head.setProperty("muted", True)
+    when = hit.started_at.strftime("%b %d, %Y · %H:%M") if hit.started_at else "—"
+    head = QLabel(f"cap-{hit.capture_id}")
+    head.setStyleSheet("font-weight: 600;")
+    timestamp = QLabel(when)
+    timestamp.setProperty("muted", True)
     score = QLabel(f"score {hit.score:.2f}")
-    score.setProperty("muted", True)
+    score.setProperty("role", "chip")
     snippet = QLabel(hit.snippet[:240])
     snippet.setWordWrap(True)
+    snippet.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
     top = QHBoxLayout()
-    top.addWidget(head)
+    top.setSpacing(8)
+    top.addWidget(head, 0, Qt.AlignmentFlag.AlignVCenter)
+    top.addWidget(timestamp, 0, Qt.AlignmentFlag.AlignVCenter)
     top.addStretch()
-    top.addWidget(score)
+    top.addWidget(score, 0, Qt.AlignmentFlag.AlignVCenter)
     col = QVBoxLayout(card)
-    col.setContentsMargins(12, 10, 12, 10)
+    col.setContentsMargins(14, 12, 14, 12)
     col.setSpacing(6)
     col.addLayout(top)
     col.addWidget(snippet)
@@ -132,8 +138,9 @@ def _chat_bubble(text: str, role: str, citations: list[SearchHit] | None = None)
 
     bubble = QFrame()
     bubble.setObjectName("card")
+    bubble.setProperty("role", "user-bubble" if role == "user" else "agent-bubble")
     inner = QVBoxLayout(bubble)
-    inner.setContentsMargins(12, 10, 12, 10)
+    inner.setContentsMargins(14, 10, 14, 10)
     inner.setSpacing(4)
 
     label = QLabel(text)
@@ -141,10 +148,19 @@ def _chat_bubble(text: str, role: str, citations: list[SearchHit] | None = None)
     label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
     inner.addWidget(label)
     if citations:
-        cite_text = "Sources: " + " · ".join(f"cap-{h.capture_id}" for h in citations)
-        cite = QLabel(cite_text)
-        cite.setProperty("muted", True)
-        inner.addWidget(cite)
+        cite_row = QHBoxLayout()
+        cite_row.setContentsMargins(0, 4, 0, 0)
+        cite_row.setSpacing(4)
+        for h in citations[:6]:
+            chip = QLabel(f"cap-{h.capture_id}")
+            chip.setProperty("role", "chip")
+            chip.setProperty("accent", True)
+            chip.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            cite_row.addWidget(chip, 0, Qt.AlignmentFlag.AlignVCenter)
+        cite_row.addStretch()
+        wrap = QWidget()
+        wrap.setLayout(cite_row)
+        inner.addWidget(wrap)
 
     # Wrap in a horizontal layout so we can right-align user / left-align agent.
     wrapper = QWidget()
@@ -153,12 +169,10 @@ def _chat_bubble(text: str, role: str, citations: list[SearchHit] | None = None)
     if role == "user":
         row.addStretch()
         row.addWidget(bubble, 0)
-        bubble.setProperty("role", "user-bubble")
     else:
         row.addWidget(bubble, 0)
         row.addStretch()
-        bubble.setProperty("role", "agent-bubble")
-    bubble.setMaximumWidth(640)
+    bubble.setMaximumWidth(560)
     return wrapper
 
 
@@ -174,28 +188,31 @@ class SearchWindow(QWidget):
         self._signals.error.connect(self._on_error)
 
         self.setWindowTitle("RIN — Search & Ask")
-        self.resize(900, 760)
+        self.resize(960, 780)
 
         # --- top: search ------------------------------------------------------
         self._query = QLineEdit()
         self._query.setPlaceholderText("Search captures semantically…")
+        self._query.setProperty("role", "search")
         self._query.returnPressed.connect(self._do_search)
         search_btn = QPushButton("Search")
         search_btn.setProperty("primary", True)
+        search_btn.setProperty("role", "search-attached")
         search_btn.clicked.connect(self._do_search)
         top_row = QHBoxLayout()
-        top_row.setSpacing(8)
+        top_row.setSpacing(0)
         top_row.addWidget(self._query, 1)
-        top_row.addWidget(search_btn)
+        top_row.addWidget(search_btn, 0)
 
         self._results = QListWidget()
         self._results.setProperty("role", "cards")
-        self._results.setSpacing(2)
+        self._results.setSpacing(0)
         self._results.setFrameShape(QFrame.Shape.NoFrame)
 
         self._results_empty = _SearchEmptyState(
-            "No searches yet",
+            "Search your captures",
             "Type a few words above to find captures by meaning, not just keyword.",
+            icon_name="search",
         )
         self._results_stack = QStackedWidget()
         self._results_stack.addWidget(self._results_empty)
@@ -218,6 +235,7 @@ class SearchWindow(QWidget):
             "Ask anything about your captures",
             "Try: \"what was that error I saw on Tuesday?\" — answers come back "
             "with citations to specific captures.",
+            icon_name="chat",
         )
         self._chat_stack = QStackedWidget()
         self._chat_stack.addWidget(self._chat_empty)
@@ -227,43 +245,47 @@ class SearchWindow(QWidget):
         self._question.setPlaceholderText(
             "Ask anything (e.g. 'what was that error I saw on Tuesday?')"
         )
+        self._question.setProperty("role", "search")
         self._question.returnPressed.connect(self._do_ask)
         ask_btn = QPushButton("Send")
         ask_btn.setProperty("primary", True)
+        ask_btn.setProperty("role", "search-attached")
         ask_btn.clicked.connect(self._do_ask)
         ask_row = QHBoxLayout()
-        ask_row.setSpacing(8)
+        ask_row.setSpacing(0)
         ask_row.addWidget(self._question, 1)
-        ask_row.addWidget(ask_btn)
+        ask_row.addWidget(ask_btn, 0)
 
         # --- assemble ---------------------------------------------------------
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setContentsMargins(28, 24, 28, 24)
         layout.setSpacing(8)
 
         heading = QLabel("Search & Ask")
         heading.setProperty("heading", "h1")
         layout.addWidget(heading)
         sub = QLabel(
-            "Semantic search across your captures, and a RAG agent for "
-            "natural-language questions."
+            "Semantic search across your captures, plus a RAG agent that "
+            "answers natural-language questions with citations."
         )
         sub.setProperty("role", "caption")
         sub.setWordWrap(True)
         layout.addWidget(sub)
-        layout.addSpacing(8)
+        layout.addSpacing(16)
 
         search_heading = QLabel("Search captures")
-        search_heading.setProperty("heading", "h2")
+        search_heading.setProperty("heading", "subtle")
         layout.addWidget(search_heading)
         layout.addLayout(top_row)
+        layout.addSpacing(6)
         layout.addWidget(self._results_stack, 2)
 
-        layout.addSpacing(8)
+        layout.addSpacing(16)
         ask_heading = QLabel("Ask")
-        ask_heading.setProperty("heading", "h2")
+        ask_heading.setProperty("heading", "subtle")
         layout.addWidget(ask_heading)
         layout.addWidget(self._chat_stack, 3)
+        layout.addSpacing(6)
         layout.addLayout(ask_row)
 
         if self._agent is None:

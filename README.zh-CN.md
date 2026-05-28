@@ -2,7 +2,7 @@
 
 > **语言：** [English](README.md) · **中文**
 
-[![tests](https://img.shields.io/badge/tests-195%20%2F%20195-brightgreen)](#测试)
+[![tests](https://img.shields.io/badge/tests-203%20%2F%20203-brightgreen)](#测试)
 [![python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](#环境要求)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D4)](#环境要求)
@@ -432,8 +432,8 @@ Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\RIN.lnk"
 
 ## 项目状态 & 变更日志
 
-- 当前版本：**v0.4.0**（2026-05-28 发布）
-- 测试：**195 / 195 pytest 通过**，ruff 清洁
+- 当前版本：**v0.4.1**（2026-05-28 发布）
+- 测试：**203 / 203 pytest 通过**，ruff 清洁
 - 构建 / lint：在 Windows 10 / 11 + Python 3.11 / 3.12 上绿
 - CI：每次 push 都跑 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
 - 完整发布历史：[`CHANGELOG.md`](CHANGELOG.md)

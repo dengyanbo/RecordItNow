@@ -29,7 +29,7 @@ uv venv
 .\.venv\Scripts\Activate.ps1
 uv pip install -e ".[all,dev]"
 
-pytest -q          # should print "195 passed" (or higher)
+pytest -q          # should print "203 passed" (or higher)
 python -m rin --smoke
 ```
 
@@ -78,7 +78,7 @@ ruff format src tests scripts    # optional but recommended
 them in your PR; if a rule is genuinely wrong for a single file, add an
 inline `# noqa: <code>` comment with a one-line justification.
 
-> The current baseline is **195 passed**; PRs must not regress that count.
+> The current baseline is **203 passed**; PRs must not regress that count.
 
 ## 5. The five hard rules
 

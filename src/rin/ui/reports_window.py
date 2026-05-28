@@ -1,8 +1,9 @@
-"""Reports browser window — v0.3.0 Fluent-inspired redesign.
+"""Reports browser window — v0.4.1 polish pass.
 
-Left rail: card-styled list of saved reports (date, kind, capture count,
-preview snippet). Right pane: rendered Markdown via ``QTextBrowser``
-with theme-aware styling.
+Left rail: card-styled list of saved reports (date, kind chip,
+file name). Right pane: rendered Markdown via ``QTextBrowser`` with
+theme-aware styling. Action row beneath the list keeps the generate +
+refresh actions visually attached to the listing.
 """
 from __future__ import annotations
 
@@ -29,6 +30,7 @@ from ..reports.generator import daily_period
 from ..storage import session
 from ..storage.models import Report
 from ..utils.logging import get_logger
+from .icon import tinted_icon
 from .theme import LIGHT, Theme, resolve, with_accent
 
 log = get_logger(__name__)
@@ -84,14 +86,34 @@ def _md_to_html(text: str, theme: Theme) -> str:
 
 
 class _EmptyState(QWidget):
-    """Centered placeholder shown when there's nothing to display."""
+    """Centered placeholder shown when there's nothing to display.
 
-    def __init__(self, title: str, hint: str, parent: QWidget | None = None) -> None:
+    Renders a tinted SVG icon above the heading + supporting text so the
+    state looks intentional rather than "we forgot to load something".
+    """
+
+    def __init__(
+        self,
+        title: str,
+        hint: str,
+        *,
+        icon_name: str = "info",
+        icon_color: str = "#9E9E9E",
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(40, 40, 40, 40)
-        layout.setSpacing(8)
+        layout.setSpacing(10)
         layout.addStretch()
+
+        icon_label = QLabel()
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon_label.setPixmap(
+            tinted_icon(icon_name, icon_color, sizes=(48,)).pixmap(QSize(48, 48))
+        )
+        layout.addWidget(icon_label)
+
         title_lbl = QLabel(title)
         title_lbl.setProperty("role", "empty-state-title")
         title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -99,37 +121,41 @@ class _EmptyState(QWidget):
         hint_lbl.setProperty("role", "empty-state-hint")
         hint_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         hint_lbl.setWordWrap(True)
-        layout.addWidget(title_lbl)
+        hint_lbl.setMinimumHeight(48)
+        layout.addWidget(title_lbl, 0, Qt.AlignmentFlag.AlignHCenter)
         layout.addWidget(hint_lbl)
         layout.addStretch()
 
 
 class _ReportCard(QWidget):
-    """A single report card in the left list — compact two-line layout."""
+    """A single report card in the left list — single-line meta + filename."""
 
     def __init__(self, report: Report, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.report = report
 
         kind_text = {"daily": "Daily", "weekly": "Weekly"}.get(report.kind, report.kind)
-        date_label = QLabel(report.period_start.strftime("%Y-%m-%d"))
+        date_label = QLabel(report.period_start.strftime("%b %d, %Y"))
         date_label.setStyleSheet("font-weight: 600;")
-        kind_label = QLabel(f"  ·  {kind_text}")
-        kind_label.setProperty("muted", True)
+        kind_chip = QLabel(kind_text)
+        kind_chip.setProperty("role", "chip")
+        kind_chip.setProperty("accent", report.kind == "weekly")
+        kind_chip.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        kind_chip.setMinimumHeight(20)
 
         top_row = QHBoxLayout()
         top_row.setContentsMargins(0, 0, 0, 0)
-        top_row.setSpacing(0)
-        top_row.addWidget(date_label)
-        top_row.addWidget(kind_label)
+        top_row.setSpacing(8)
+        top_row.addWidget(date_label, 0, Qt.AlignmentFlag.AlignVCenter)
         top_row.addStretch()
+        top_row.addWidget(kind_chip, 0, Qt.AlignmentFlag.AlignVCenter)
 
         path_label = QLabel(Path(report.markdown_path).name)
         path_label.setProperty("role", "caption")
 
         col = QVBoxLayout(self)
         col.setContentsMargins(14, 10, 14, 10)
-        col.setSpacing(2)
+        col.setSpacing(4)
         col.addLayout(top_row)
         col.addWidget(path_label)
 
@@ -139,12 +165,12 @@ class ReportsWindow(QWidget):
         super().__init__(parent)
         self.config = config
         self.setWindowTitle("RIN — Reports")
-        self.resize(1020, 640)
+        self.resize(1080, 680)
 
         self._list = QListWidget()
         self._list.setProperty("role", "cards")
         self._list.setIconSize(QSize(0, 0))
-        self._list.setSpacing(2)
+        self._list.setSpacing(0)
         self._list.itemClicked.connect(self._on_item_clicked)
         self._list.setFrameShape(QFrame.Shape.NoFrame)
 
@@ -156,41 +182,72 @@ class ReportsWindow(QWidget):
         self._empty_state = _EmptyState(
             "Select a report",
             "Pick a report on the left, or generate today's report to get started.",
+            icon_name="document",
         )
         self._viewer_stack = QStackedWidget()
         self._viewer_stack.addWidget(self._empty_state)
         self._viewer_stack.addWidget(self._viewer)
 
-        gen_today = QPushButton("Generate today's report")
+        gen_today = QPushButton("Today")
         gen_today.setProperty("primary", True)
         gen_today.clicked.connect(self._generate_today)
-        gen_week = QPushButton("Generate weekly report")
+        gen_week = QPushButton("This week")
         gen_week.clicked.connect(self._generate_week)
         refresh = QPushButton("Refresh")
         refresh.setProperty("flat", True)
         refresh.clicked.connect(self._refresh_list)
 
+        action_row = QHBoxLayout()
+        action_row.setContentsMargins(0, 0, 0, 0)
+        action_row.setSpacing(8)
+        gen_label = QLabel("Generate")
+        gen_label.setProperty("heading", "subtle")
+        action_row.addWidget(gen_label, 0, Qt.AlignmentFlag.AlignVCenter)
+        action_row.addWidget(gen_today)
+        action_row.addWidget(gen_week)
+        action_row.addStretch()
+        action_row.addWidget(refresh)
+
         side = QVBoxLayout()
-        side.setContentsMargins(20, 20, 12, 20)
-        side.setSpacing(12)
+        side.setContentsMargins(24, 24, 16, 24)
+        side.setSpacing(10)
         heading = QLabel("Reports")
         heading.setProperty("heading", "h1")
         side.addWidget(heading)
-        list_caption = QLabel(f"Saved · {len(self._all_reports())}")
-        list_caption.setProperty("role", "caption")
-        side.addWidget(list_caption)
-        self._list_caption = list_caption
+        subtitle = QLabel("Daily and weekly summaries of your captures.")
+        subtitle.setProperty("role", "caption")
+        subtitle.setWordWrap(True)
+        side.addWidget(subtitle)
+        side.addSpacing(8)
+
+        meta_row = QHBoxLayout()
+        meta_row.setContentsMargins(0, 0, 0, 0)
+        meta_row.setSpacing(8)
+        list_caption = QLabel("Saved reports")
+        list_caption.setProperty("heading", "subtle")
+        count_chip = QLabel("0")
+        count_chip.setProperty("role", "chip")
+        count_chip.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        count_chip.setMinimumWidth(28)
+        meta_row.addWidget(list_caption)
+        meta_row.addStretch()
+        meta_row.addWidget(count_chip)
+        side.addLayout(meta_row)
+        self._list_caption = count_chip
+
         side.addWidget(self._list, 1)
-        side.addWidget(gen_today)
-        side.addWidget(gen_week)
-        side.addWidget(refresh)
+        side.addLayout(action_row)
 
         side_widget = QWidget()
         side_widget.setLayout(side)
         side_widget.setFixedWidth(320)
 
+        divider = QFrame()
+        divider.setProperty("role", "divider-vert")
+        divider.setFixedWidth(1)
+
         viewer_col = QVBoxLayout()
-        viewer_col.setContentsMargins(20, 20, 20, 20)
+        viewer_col.setContentsMargins(24, 24, 24, 24)
         viewer_col.addWidget(self._viewer_stack)
 
         viewer_widget = QWidget()
@@ -200,6 +257,7 @@ class ReportsWindow(QWidget):
         main.setContentsMargins(0, 0, 0, 0)
         main.setSpacing(0)
         main.addWidget(side_widget)
+        main.addWidget(divider)
         main.addWidget(viewer_widget, 1)
 
         self._refresh_list()
@@ -219,11 +277,11 @@ class ReportsWindow(QWidget):
     def _refresh_list(self) -> None:
         self._list.clear()
         rows = self._all_reports()
-        self._list_caption.setText(f"Saved · {len(rows)}")
+        self._list_caption.setText(str(len(rows)))
         if not rows:
-            placeholder = QListWidgetItem("Nothing saved yet")
-            placeholder.setFlags(Qt.ItemFlag.NoItemFlags)
-            self._list.addItem(placeholder)
+            empty_item = QListWidgetItem("No reports yet — click Generate today.")
+            empty_item.setFlags(Qt.ItemFlag.NoItemFlags)
+            self._list.addItem(empty_item)
             return
         for r in rows:
             card = _ReportCard(r)

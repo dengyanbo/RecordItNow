@@ -6,10 +6,11 @@ writes the updated values back into the in-memory config, persists the
 TOML file, and emits ``config_saved`` so listeners (tray, input manager,
 theme manager) can react.
 
-Layout: a 200 px ``QListWidget`` on the left acts as a navigation rail
-(``role="nav"`` for stylesheet pickup); the right pane is a
-``QStackedWidget`` with one page per section. The dialog is wider than
-v0.1's tabbed layout to make every form less cramped.
+Layout: a 220 px ``QListWidget`` on the left acts as a navigation rail
+(``role="nav"`` for stylesheet pickup) with a 3 px accent stripe on the
+selected row; the right pane is a ``QStackedWidget`` with one page per
+section. Each page carries a hero heading + supporting caption, then a
+form whose labels sit *above* their inputs with explicit field widths.
 """
 from __future__ import annotations
 
@@ -32,6 +33,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QRadioButton,
     QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QStackedWidget,
     QVBoxLayout,
@@ -40,6 +42,7 @@ from PySide6.QtWidgets import (
 
 from ..config import RinConfig, TriggerBinding
 from ..utils.logging import get_logger
+from .theme import LIGHT, resolve, with_accent
 
 log = get_logger(__name__)
 
@@ -50,29 +53,38 @@ WEEKDAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 THEME_MODES = ["auto", "light", "dark"]
 ACCENT_OPTIONS = ["blue", "purple", "teal", "orange"]
 
+# Standard input-width tiers — picked from Fluent 2 form patterns. Used
+# everywhere instead of ``setMaximumWidth`` (which doesn't honor a
+# QFormLayout's row).
+_W_NUMBER = 132   # numeric input with suffix (e.g. "500 ms")
+_W_PICKER = 220   # short combo / dropdown
+_W_TEXT = 360     # free-form short text (model name)
+_W_URL = 460      # URL / long text
 
-def _nav_icon(name: str) -> QIcon:
-    """Return a Fluent SVG icon for the nav rail, or empty QIcon if missing."""
+
+def _nav_icon(name: str, color: str) -> QIcon:
+    """Return a tinted Fluent SVG icon for the nav rail (theme-aware)."""
 
     try:
-        from . import icon_path
+        from .icon import tinted_icon
 
-        return QIcon(str(icon_path(name)))
-    except (FileNotFoundError, ImportError):
+        return tinted_icon(name, color)
+    except Exception:
         return QIcon()
 
 
 class SettingsDialog(QDialog):
     config_saved = Signal(RinConfig)
 
-    NAV_ITEMS = (
-        ("Trigger",       "keyboard"),
-        ("Working hours", "clock"),
-        ("Analysis",      "lightbulb"),
-        ("Reports",       "document"),
-        ("Capture",       "mic"),
-        ("Storage",       "folder"),
-        ("Appearance",    "color"),
+    # Each tab: (label, icon, supporting caption).
+    NAV_ITEMS: tuple[tuple[str, str, str], ...] = (
+        ("Trigger",       "keyboard",  "What button captures or starts a recording."),
+        ("Working hours", "clock",     "When background analysis is allowed to run."),
+        ("Analysis",      "lightbulb", "Choose your LLM provider and analysis cadence."),
+        ("Reports",       "document",  "How and when daily/weekly summaries are produced."),
+        ("Capture",       "mic",       "Audio device and recording details."),
+        ("Storage",       "folder",    "Disk retention for captures and summaries."),
+        ("Appearance",    "color",     "Theme, accent colour, and density."),
     )
 
     def __init__(
@@ -84,18 +96,28 @@ class SettingsDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("RIN — Settings")
-        self.setMinimumSize(720, 540)
+        self.setMinimumSize(780, 560)
         self._config = config
         self._learn_callback = learn_callback
 
+        # Resolve the active theme up-front so we can tint nav icons to
+        # match the muted text colour (Fluent's "neutralForeground2").
+        try:
+            theme = with_accent(resolve(config.ui.theme), config.ui.accent)
+        except Exception:
+            theme = LIGHT
+        self._nav_color = theme.text_muted
+        self._nav_color_selected = theme.text
+
         self._nav = QListWidget()
         self._nav.setProperty("role", "nav")
-        self._nav.setFixedWidth(190)
-        self._nav.setIconSize(QSize(16, 16))
+        self._nav.setFixedWidth(220)
+        self._nav.setIconSize(QSize(18, 18))
         self._nav.setSpacing(0)
         self._nav.setFrameShape(QFrame.Shape.NoFrame)
-        for label, icon_name in self.NAV_ITEMS:
-            item = QListWidgetItem(_nav_icon(icon_name), "  " + label)
+        self._nav.setUniformItemSizes(True)
+        for label, icon_name, _caption in self.NAV_ITEMS:
+            item = QListWidgetItem(_nav_icon(icon_name, self._nav_color), "  " + label)
             self._nav.addItem(item)
 
         self._stack = QStackedWidget()
@@ -112,8 +134,10 @@ class SettingsDialog(QDialog):
 
         save_btn = QPushButton("Save")
         save_btn.setProperty("primary", True)
+        save_btn.setMinimumWidth(96)
         save_btn.clicked.connect(self._on_save)
         cancel_btn = QPushButton("Cancel")
+        cancel_btn.setMinimumWidth(96)
         cancel_btn.clicked.connect(self.reject)
 
         # Footer with top divider, matching Fluent dialog conventions.
@@ -145,12 +169,17 @@ class SettingsDialog(QDialog):
     def _add_page(self, page: QWidget) -> None:
         """Wrap a page with consistent margins + heading + scroll area.
 
-        Pulls the heading text from the latest nav item just inserted (the
-        order of build calls matches ``NAV_ITEMS``).
+        Pulls the heading text + caption from ``NAV_ITEMS`` so each page
+        has a hero title and a small supporting line that explains what
+        the section controls. Layout breathes — labels sit above inputs
+        with explicit widths, hints sit immediately below the input they
+        describe (handled by callers via ``_hint``).
         """
 
         idx = self._stack.count()
-        title = self.NAV_ITEMS[idx][0] if idx < len(self.NAV_ITEMS) else ""
+        title, _icon, caption = (
+            self.NAV_ITEMS[idx] if idx < len(self.NAV_ITEMS) else ("", "", "")
+        )
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -159,16 +188,22 @@ class SettingsDialog(QDialog):
 
         wrapper = QWidget()
         col = QVBoxLayout(wrapper)
-        col.setContentsMargins(28, 24, 28, 16)
-        col.setSpacing(16)
+        col.setContentsMargins(32, 28, 32, 16)
+        col.setSpacing(8)
 
         if title:
             heading = QLabel(title)
             heading.setProperty("heading", "h1")
             col.addWidget(heading)
+        if caption:
+            sub = QLabel(caption)
+            sub.setProperty("role", "caption")
+            sub.setWordWrap(True)
+            col.addWidget(sub)
+        col.addSpacing(12)
 
         col.addWidget(page)
-        col.addStretch()
+        col.addStretch(1)
         scroll.setWidget(wrapper)
         self._stack.addWidget(scroll)
 
@@ -181,7 +216,7 @@ class SettingsDialog(QDialog):
         form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
         form.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         form.setHorizontalSpacing(12)
-        form.setVerticalSpacing(14)
+        form.setVerticalSpacing(8)
         form.setContentsMargins(0, 0, 0, 0)
         return form
 
@@ -193,7 +228,7 @@ class SettingsDialog(QDialog):
 
     @staticmethod
     def _label(text: str) -> QLabel:
-        """Field label (small muted caption above its input)."""
+        """Field label (small SemiBold caption above its input)."""
 
         lbl = QLabel(text)
         lbl.setProperty("role", "field-label")
@@ -201,10 +236,26 @@ class SettingsDialog(QDialog):
 
     @staticmethod
     def _hint(text: str) -> QLabel:
+        """Hint text below an input — slightly muted, smaller, no decoration."""
+
         lbl = QLabel(text)
-        lbl.setProperty("role", "caption")
+        lbl.setProperty("role", "field-hint")
         lbl.setWordWrap(True)
         return lbl
+
+    @staticmethod
+    def _fixed(widget: QWidget, width: int) -> QWidget:
+        """Force a fixed width on an input — QFormLayout otherwise stretches it."""
+
+        widget.setFixedWidth(width)
+        widget.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        return widget
+
+    @staticmethod
+    def _section_spacer(form: QFormLayout, height: int = 8) -> None:
+        spacer = QWidget()
+        spacer.setFixedHeight(height)
+        form.addRow(spacer)
 
     # --- tab builders -------------------------------------------------------------
 
@@ -213,13 +264,22 @@ class SettingsDialog(QDialog):
         form = self._form()
         page.setLayout(form)
 
+        # Trigger row: present the bound key as a "chip" with the
+        # Learn-new-button trigger right next to it. Both inside a card
+        # so the relationship is unmistakable.
         self._binding_label = QLabel("(unset)")
         self._binding_label.setObjectName("trigger_label")
+        self._binding_label.setProperty("role", "chip")
+        self._binding_label.setProperty("accent", True)
+        self._binding_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._binding_label.setMinimumHeight(28)
         self._learn_button = QPushButton("Learn new button…")
         self._learn_button.clicked.connect(self._on_learn_clicked)
         row = QHBoxLayout()
-        row.setSpacing(8)
-        row.addWidget(self._binding_label, 1)
+        row.setSpacing(10)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(self._binding_label, 0, Qt.AlignmentFlag.AlignLeft)
+        row.addStretch(1)
         row.addWidget(self._learn_button, 0)
         form.addRow(self._label("Trigger button"), _wrap(row))
 
@@ -227,11 +287,11 @@ class SettingsDialog(QDialog):
         self._hold_spin.setRange(100, 5000)
         self._hold_spin.setSingleStep(50)
         self._hold_spin.setSuffix(" ms")
-        self._hold_spin.setMaximumWidth(180)
+        self._fixed(self._hold_spin, _W_NUMBER)
         form.addRow(self._label("Hold threshold"), self._hold_spin)
         form.addRow(self._hint(
             "Tap the trigger to take a screenshot; hold past this threshold "
-            "to start recording video. Release to stop."
+            "to start a video + audio recording. Release to stop."
         ))
 
         self._add_page(page)
@@ -243,23 +303,30 @@ class SettingsDialog(QDialog):
 
         self._wh_enabled = QCheckBox("Apply working-hours gate to hourly analysis")
         form.addRow(self._wh_enabled)
+        form.addRow(self._hint(
+            "Outside these hours (or when idle), RIN runs OCR + LLM on new captures."
+        ))
+
+        self._section_spacer(form)
 
         self._wh_start = QSpinBox()
         self._wh_start.setRange(0, 23)
         self._wh_start.setSuffix(" h")
-        self._wh_start.setMaximumWidth(110)
+        self._fixed(self._wh_start, 96)
         self._wh_end = QSpinBox()
         self._wh_end.setRange(0, 23)
         self._wh_end.setSuffix(" h")
-        self._wh_end.setMaximumWidth(110)
+        self._fixed(self._wh_end, 96)
         hours_row = QHBoxLayout()
-        hours_row.setSpacing(6)
+        hours_row.setSpacing(8)
+        hours_row.setContentsMargins(0, 0, 0, 0)
         from_lbl = QLabel("From")
         from_lbl.setProperty("muted", True)
         to_lbl = QLabel("to")
         to_lbl.setProperty("muted", True)
         hours_row.addWidget(from_lbl)
         hours_row.addWidget(self._wh_start)
+        hours_row.addSpacing(8)
         hours_row.addWidget(to_lbl)
         hours_row.addWidget(self._wh_end)
         hours_row.addStretch()
@@ -267,7 +334,8 @@ class SettingsDialog(QDialog):
 
         self._weekday_checks: list[QCheckBox] = []
         wd_row = QHBoxLayout()
-        wd_row.setSpacing(4)
+        wd_row.setSpacing(10)
+        wd_row.setContentsMargins(0, 0, 0, 0)
         for label in WEEKDAY_NAMES:
             cb = QCheckBox(label)
             self._weekday_checks.append(cb)
@@ -278,7 +346,7 @@ class SettingsDialog(QDialog):
         self._idle_minutes = QSpinBox()
         self._idle_minutes.setRange(1, 240)
         self._idle_minutes.setSuffix(" min")
-        self._idle_minutes.setMaximumWidth(140)
+        self._fixed(self._idle_minutes, _W_NUMBER)
         form.addRow(self._label("Idle threshold"), self._idle_minutes)
 
         self._add_page(page)
@@ -290,17 +358,21 @@ class SettingsDialog(QDialog):
 
         self._llm_combo = QComboBox()
         self._llm_combo.addItems(LLM_NAMES)
-        self._llm_combo.setMaximumWidth(220)
+        self._fixed(self._llm_combo, _W_PICKER)
         form.addRow(self._label("Provider"), self._llm_combo)
+        form.addRow(self._hint(
+            "Copilot CLI is the default and needs no API key — install with "
+            "`winget install GitHub.cli` then `gh extension install github/gh-copilot`."
+        ))
 
         self._llm_model = QLineEdit()
         self._llm_model.setPlaceholderText("Provider default (leave blank)")
-        self._llm_model.setMaximumWidth(360)
+        self._fixed(self._llm_model, _W_TEXT)
         form.addRow(self._label("Model"), self._llm_model)
 
         self._effort_combo = QComboBox()
         self._effort_combo.addItems(REASONING_EFFORTS)
-        self._effort_combo.setMaximumWidth(220)
+        self._fixed(self._effort_combo, _W_PICKER)
         self._effort_combo.setToolTip(
             "Copilot CLI only — reasoning effort. Leave blank to use the model's default."
         )
@@ -308,18 +380,20 @@ class SettingsDialog(QDialog):
 
         self._azure_endpoint = QLineEdit()
         self._azure_endpoint.setPlaceholderText("https://your-resource.openai.azure.com")
-        self._azure_endpoint.setMaximumWidth(420)
+        self._fixed(self._azure_endpoint, _W_URL)
         form.addRow(self._label("Azure endpoint"), self._azure_endpoint)
 
         self._azure_deployment = QLineEdit()
-        self._azure_deployment.setMaximumWidth(360)
+        self._fixed(self._azure_deployment, _W_TEXT)
         form.addRow(self._label("Azure deployment"), self._azure_deployment)
 
         self._llm_timeout = QSpinBox()
         self._llm_timeout.setRange(5, 600)
         self._llm_timeout.setSuffix(" s")
-        self._llm_timeout.setMaximumWidth(140)
+        self._fixed(self._llm_timeout, _W_NUMBER)
         form.addRow(self._label("Request timeout"), self._llm_timeout)
+
+        self._section_spacer(form)
 
         self._hourly_enabled = QCheckBox("Run hourly auto-analysis")
         form.addRow(self._hourly_enabled)
@@ -337,8 +411,13 @@ class SettingsDialog(QDialog):
 
         self._report_combo = QComboBox()
         self._report_combo.addItems(REPORT_FREQUENCIES)
-        self._report_combo.setMaximumWidth(220)
+        self._fixed(self._report_combo, _W_PICKER)
         form.addRow(self._label("Frequency"), self._report_combo)
+        form.addRow(self._hint(
+            "Daily reports are generated at 23:50 local time; weekly reports on Sunday."
+        ))
+
+        self._section_spacer(form)
 
         self._notify_check = QCheckBox("Show a notification when a report is ready")
         form.addRow(self._notify_check)
@@ -353,8 +432,13 @@ class SettingsDialog(QDialog):
         self._retention_spin = QSpinBox()
         self._retention_spin.setRange(1, 3650)
         self._retention_spin.setSuffix(" days")
-        self._retention_spin.setMaximumWidth(160)
+        self._fixed(self._retention_spin, _W_NUMBER)
         form.addRow(self._label("Keep raw captures for"), self._retention_spin)
+        form.addRow(self._hint(
+            "Older PNG/MP4 files are removed; their summaries remain in the database."
+        ))
+
+        self._section_spacer(form)
 
         self._keep_summaries = QCheckBox("Keep AI summaries forever")
         form.addRow(self._keep_summaries)
@@ -362,8 +446,11 @@ class SettingsDialog(QDialog):
         self._min_space = QSpinBox()
         self._min_space.setRange(1, 1000)
         self._min_space.setSuffix(" GB")
-        self._min_space.setMaximumWidth(140)
+        self._fixed(self._min_space, _W_NUMBER)
         form.addRow(self._label("Minimum free space"), self._min_space)
+        form.addRow(self._hint(
+            "RIN pauses captures when the disk drops below this threshold."
+        ))
 
         self._add_page(page)
 
@@ -374,33 +461,37 @@ class SettingsDialog(QDialog):
 
         self._audio_combo = QComboBox()
         self._audio_combo.setEditable(True)
-        self._audio_combo.setMaximumWidth(420)
+        self._fixed(self._audio_combo, _W_URL)
         self._audio_combo.setToolTip(
             "DirectShow audio device to mix into video recordings. "
             "Leave blank to record video only."
         )
-        self._refresh_audio_button = QPushButton("Refresh devices")
+        self._refresh_audio_button = QPushButton("Refresh")
         self._refresh_audio_button.clicked.connect(self._refresh_audio_devices)
         audio_row = QHBoxLayout()
         audio_row.setSpacing(8)
-        audio_row.addWidget(self._audio_combo, 1)
+        audio_row.setContentsMargins(0, 0, 0, 0)
+        audio_row.addWidget(self._audio_combo, 0)
         audio_row.addWidget(self._refresh_audio_button, 0)
+        audio_row.addStretch()
         form.addRow(self._label("Audio device"), _wrap(audio_row))
         form.addRow(self._hint(
             "Enable 'Stereo Mix' in Windows Sound settings to capture "
             "system audio (not just the mic)."
         ))
 
+        self._section_spacer(form)
+
         self._sample_rate_spin = QSpinBox()
         self._sample_rate_spin.setRange(8000, 192000)
         self._sample_rate_spin.setSingleStep(1000)
         self._sample_rate_spin.setSuffix(" Hz")
-        self._sample_rate_spin.setMaximumWidth(160)
+        self._fixed(self._sample_rate_spin, _W_NUMBER)
         form.addRow(self._label("Sample rate"), self._sample_rate_spin)
 
         self._channels_spin = QSpinBox()
         self._channels_spin.setRange(1, 8)
-        self._channels_spin.setMaximumWidth(100)
+        self._fixed(self._channels_spin, 88)
         form.addRow(self._label("Audio channels"), self._channels_spin)
 
         self._tabs_addTab_legacy_marker = None  # replaced below
@@ -413,7 +504,8 @@ class SettingsDialog(QDialog):
 
         self._theme_group = QButtonGroup(self)
         theme_row = QHBoxLayout()
-        theme_row.setSpacing(16)
+        theme_row.setSpacing(20)
+        theme_row.setContentsMargins(0, 0, 0, 0)
         self._theme_radios: dict[str, QRadioButton] = {}
         for mode in THEME_MODES:
             label = {"auto": "Follow Windows", "light": "Light", "dark": "Dark"}[mode]
@@ -426,7 +518,8 @@ class SettingsDialog(QDialog):
 
         self._accent_group = QButtonGroup(self)
         accent_row = QHBoxLayout()
-        accent_row.setSpacing(16)
+        accent_row.setSpacing(20)
+        accent_row.setContentsMargins(0, 0, 0, 0)
         self._accent_radios: dict[str, QRadioButton] = {}
         accent_labels = {"blue": "Blue", "purple": "Purple", "teal": "Teal", "orange": "Orange"}
         for accent in ACCENT_OPTIONS:
@@ -439,7 +532,7 @@ class SettingsDialog(QDialog):
 
         self._density_combo = QComboBox()
         self._density_combo.addItems(["comfortable", "compact"])
-        self._density_combo.setMaximumWidth(220)
+        self._fixed(self._density_combo, _W_PICKER)
         self._density_combo.setToolTip(
             "Spacing density for buttons, lists, and inputs."
         )
@@ -556,15 +649,17 @@ class SettingsDialog(QDialog):
 
     @staticmethod
     def _format_binding(binding: TriggerBinding) -> str:
+        """Pretty-print a binding for the trigger chip."""
+
         if binding.source == "unset":
-            return "(unset — click 'Learn new button')"
-        if binding.label:
-            return binding.label
-        if binding.source == "keyboard":
-            return f"Key: {binding.key}"
-        if binding.source == "mouse":
-            return f"Mouse: {binding.key}"
-        return f"HID {binding.vendor_id:#06x}:{binding.product_id:#06x}"
+            return "Not set"
+        if binding.source == "keyboard" and binding.key:
+            return binding.key.upper()
+        if binding.source == "mouse" and binding.key:
+            return f"Mouse · {binding.key}"
+        if binding.source == "hid":
+            return f"HID {binding.vendor_id:#06x}:{binding.product_id:#06x}"
+        return binding.label or binding.source
 
     # --- audio device picker ------------------------------------------------------
 

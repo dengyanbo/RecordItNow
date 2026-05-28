@@ -2,6 +2,109 @@
 
 All notable changes to RIN — Record It Now.
 
+## v0.4.1 — Fine-grained UI polish
+
+The v0.3.2 redesign got the layout right but the details still felt
+unfinished — washed-out field labels, ungrouped trigger controls, full-
+width primary buttons fighting for attention, plain-text empty states,
+nav-rail icons that disappeared in dark mode. This release goes through
+every visible widget and tightens the details.
+
+### Settings dialog
+- **Nav rail** now uses a subtle ``accent_subtle`` background + a
+  **3 px left accent stripe** on the selected row (Fluent 2 pattern)
+  instead of the saturated-blue blob. Icons are recoloured per-theme.
+- **Page headers** now use the Segoe UI Variable *Display* family with
+  a supporting caption sourced from each nav item, so every page starts
+  with a clear "what is this section for?" line.
+- **Trigger row** binds the captured key + the Learn button into a
+  single visually grouped row: the key reads as an accent-tinted chip
+  (e.g. ``F12``) instead of a floating "Key: f12" label.
+- **Field labels** are now SemiBold + body-text colour (not the washed
+  ``text_muted``); hints are smaller + render directly below the input
+  they describe via the new ``role="field-hint"`` selector.
+- **Input widths** are pinned per tier (number / picker / text / URL)
+  with ``setFixedWidth`` — ``setMaximumWidth`` was being ignored by
+  ``QFormLayout`` and inputs were stretching the whole row.
+- **Save / Cancel** buttons get a ``min-width: 96`` so they read as
+  distinct affordances, not narrow ovals.
+
+### Reports window
+- Card content tightened: large date + ``Daily`` / ``Weekly`` chip on
+  one row, file name as a caption below.
+- Action row replaces the stacked full-width buttons with a single
+  row: ``Generate → [Today] [This week]`` on the left, ``Refresh``
+  flat link on the right.
+- Empty state in the right pane now leads with a tinted document icon
+  before the heading and supporting text.
+- Vertical divider between rails draws a real 1 px line via
+  ``role="divider-vert"``.
+
+### Search & Ask window
+- **Combined search bar**: the input + "Search" button share a single
+  rounded shape via ``role="search"`` + ``role="search-attached"``.
+  Same treatment for the Ask box + Send button.
+- **Distinct chat bubbles**: user bubbles use the accent-tinted
+  ``accent_subtle`` fill with a tail on the bottom-right; agent
+  bubbles use the surface colour with a tail on the bottom-left.
+- Citations under an answer render as compact accent chips
+  (``cap-3`` ``cap-7``) instead of an inline comma-separated string.
+- Empty states for both panes now show a tinted SVG icon
+  (``search`` / ``chat``) above the heading.
+
+### Design tokens (``theme.py``)
+- **New typographic ramp** with a ``font_size_display`` (22 pt) for
+  hero headings + ``font_family_display`` ("Segoe UI Variable Display")
+  applied to ``heading="hero"`` / ``heading="h1"`` selectors.
+- **New colour tokens**: ``accent_subtle`` (computed via a flat blend
+  with the background per theme), ``surface_card``, ``border_strong``,
+  ``focus_ring``.
+- Tighter neutrals: borders ``#E5E5E5 → #D6D6D6`` (light) and
+  ``#3F3F3F → #484848`` (dark) for crispness on hi-DPI; muted text
+  bumped slightly for readability.
+- ``radius_chip`` token added (12 px).
+
+### Stylesheet (``style.py``)
+- **Focus rings** now visible on every input and button: a 2 px solid
+  ``focus_ring`` border with auto-adjusted padding to prevent layout
+  shift on focus.
+- **Hover affordance** on default buttons: border colour bumps to
+  ``text_muted``, background to ``surface_hover``.
+- **Chip widget** (``role="chip"``): an inline pill, optionally
+  ``accent="true"`` for the tinted variant used by the trigger key +
+  citation badges.
+- **New selectors**: ``role="user-bubble"``, ``role="agent-bubble"``,
+  ``role="search"``, ``role="search-attached"``, ``role="field-hint"``,
+  ``role="divider-vert"``, ``role="icon"``, ``heading="hero"``,
+  ``heading="subtle"``.
+
+### Icon system (``icon.py``)
+- New ``tinted_icon(name, color, sizes=...)`` factory loads any bundled
+  Fluent SVG and recolours its fill at render time. Multi-resolution
+  ``QIcon`` returned. Used by the nav rail (theme-aware), empty states,
+  and chip indicators.
+- ``_read_svg`` is now ``functools.lru_cache``'d (small bundled assets
+  on a hot render path).
+- New ``icon_size_for(rule)`` helper returns canonical Qt icon sizes
+  (``nav`` / ``menu`` / ``card`` / ``empty-state`` / ``button``).
+
+### Tests
+**203 / 203 pass** (+8 since v0.4.0):
+- 6 new theme/QSS assertions: accent-subtle blending, focus-ring
+  presence, every new ``role="…"`` / ``heading="…"`` selector renders.
+- 2 new icon factory tests: ``tinted_icon`` recolours a known asset to
+  the requested fill; canonical sizes are reasonable.
+
+### Screenshots
+`docs/screenshots/before_v041/` captures the v0.4.0 baseline;
+`docs/screenshots/after/` overwritten with the new pass. Light + dark.
+
+### Internal
+- Version bumped to ``0.4.1`` in ``src/rin/__init__.py`` and
+  ``pyproject.toml``.
+
+---
+
 ## v0.4.0 — Project hygiene + small polish
 
 Focus of this release is making RIN a healthy open-source project: real

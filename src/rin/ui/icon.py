@@ -8,13 +8,19 @@ We compose two layers on each rendered pixmap:
 The recording variant adds a pulsing red dot in the lower-right corner.
 :class:`PulseIconAnimator` is a tiny QObject helper that owns a QTimer
 and updates a target ``QSystemTrayIcon`` every 150 ms during recording.
+
+This module also exposes :func:`tinted_icon`, which loads any bundled
+asset and recolors it for a given foreground colour. Used by the nav
+rail, settings menu actions, and empty-state placeholders so icons
+always read crisply against the active theme.
 """
 from __future__ import annotations
 
 import math
+from functools import lru_cache
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QRectF, Qt, QTimer
+from PySide6.QtCore import QObject, QRectF, QSize, Qt, QTimer
 from PySide6.QtGui import QBrush, QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 
@@ -26,23 +32,93 @@ _ASSETS = Path(__file__).resolve().parent / "assets"
 _ICON_SIZES = (16, 24, 32, 48, 64)
 
 
+@lru_cache(maxsize=64)
+def _read_svg(name: str) -> str:
+    """Return the raw text of ``<name>.svg`` from the bundled assets.
+
+    Cached because the same asset is rendered at many sizes — re-reading
+    the file each time is wasteful (the SVGs are small but the lookup is
+    on a hot rendering path).
+    """
+
+    path = _ASSETS / f"{name}.svg"
+    if not path.exists():
+        return ""
+    return path.read_text(encoding="utf-8", errors="replace")
+
+
+def _tint_svg_text(text: str, color: str) -> str:
+    """Replace common Fluent-SVG fill markers with ``color``."""
+
+    if not text:
+        return text
+    # Microsoft Fluent UI System Icons use fill="#212121" (light)
+    # or fill="currentColor". Match a few common forms.
+    out = text
+    for needle in ('fill="#212121"', 'fill="#000000"', 'fill="black"'):
+        out = out.replace(needle, f'fill="{color}"')
+    out = out.replace('"currentColor"', f'"{color}"')
+    return out
+
+
 def _render_camera_glyph(painter: QPainter, rect: QRectF, color: QColor) -> None:
     """Paint the bundled ``camera.svg`` recolored to ``color`` inside ``rect``."""
 
-    svg_path = _ASSETS / "camera.svg"
-    if not svg_path.exists():
+    raw = _read_svg("camera")
+    if not raw:
         # Fallback: draw a basic circle so we always show *something*.
         painter.setBrush(QBrush(color))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawEllipse(rect)
         return
-
-    raw = svg_path.read_bytes().decode("utf-8", errors="replace")
-    # Microsoft's Fluent SVGs use ``fill="black"`` or ``fill="currentColor"``.
-    tinted = raw.replace('fill="black"', f'fill="{color.name()}"')
-    tinted = tinted.replace('"currentColor"', f'"{color.name()}"')
-    renderer = QSvgRenderer(tinted.encode("utf-8"))
+    renderer = QSvgRenderer(_tint_svg_text(raw, color.name()).encode("utf-8"))
     renderer.render(painter, rect)
+
+
+def _render_tinted_pixmap(name: str, size: int, color: str) -> QPixmap:
+    """Render ``name.svg`` at ``size`` px square, fill recoloured to ``color``."""
+
+    pm = QPixmap(size, size)
+    pm.fill(Qt.GlobalColor.transparent)
+    raw = _read_svg(name)
+    if not raw:
+        return pm
+    painter = QPainter(pm)
+    try:
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        renderer = QSvgRenderer(_tint_svg_text(raw, color).encode("utf-8"))
+        renderer.render(painter, QRectF(0, 0, size, size))
+    finally:
+        painter.end()
+    return pm
+
+
+def tinted_icon(name: str, color: str, *, sizes: tuple[int, ...] = (16, 20, 24, 32)) -> QIcon:
+    """Return a multi-resolution :class:`QIcon` for ``name.svg`` filled
+    with ``color`` (any ``#rrggbb`` string).
+
+    Suitable for nav-rail items, menu actions, empty-state placeholders,
+    and buttons that need to match the active theme.
+    """
+
+    icon = QIcon()
+    for s in sizes:
+        icon.addPixmap(_render_tinted_pixmap(name, s, color))
+    return icon
+
+
+def icon_size_for(rule: str = "default") -> QSize:
+    """Canonical icon sizes used across the app."""
+
+    return {
+        "nav": QSize(18, 18),
+        "menu": QSize(16, 16),
+        "card": QSize(24, 24),
+        "empty-state": QSize(40, 40),
+        "button": QSize(16, 16),
+        "default": QSize(20, 20),
+    }.get(rule, QSize(20, 20))
 
 
 def _make_pixmap(size: int, theme: Theme = LIGHT, recording: bool = False,
