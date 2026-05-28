@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QObject, QRunnable, QSize, Qt, QThreadPool, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (
 
 from ..config import RinConfig, TriggerBinding
 from ..utils.logging import get_logger
+from .progress import Spinner
 from .theme import LIGHT, resolve, with_accent
 
 log = get_logger(__name__)
@@ -468,11 +469,18 @@ class SettingsDialog(QDialog):
         )
         self._refresh_audio_button = QPushButton("Refresh")
         self._refresh_audio_button.clicked.connect(self._refresh_audio_devices)
+
+        # Inline spinner that takes the Refresh button's place while a
+        # device-enumeration shells out to ffmpeg (typically 1-3 s).
+        self._refresh_audio_spinner = Spinner(size=18, accent=self._nav_color_selected)
+        self._refresh_audio_spinner.hide()
+
         audio_row = QHBoxLayout()
         audio_row.setSpacing(8)
         audio_row.setContentsMargins(0, 0, 0, 0)
         audio_row.addWidget(self._audio_combo, 0)
         audio_row.addWidget(self._refresh_audio_button, 0)
+        audio_row.addWidget(self._refresh_audio_spinner, 0, Qt.AlignmentFlag.AlignVCenter)
         audio_row.addStretch()
         form.addRow(self._label("Audio device"), _wrap(audio_row))
         form.addRow(self._hint(
@@ -575,8 +583,12 @@ class SettingsDialog(QDialog):
         self._keep_summaries.setChecked(c.storage.keep_summaries_forever)
         self._min_space.setValue(c.storage.min_free_space_gb)
 
-        # Capture tab — populate audio device list (best effort), preselect current.
-        self._populate_audio_combo(initial=c.capture.audio_device or "")
+        # Capture tab — seed the audio combo with the currently saved
+        # device so the user sees *something* immediately, then enumerate
+        # the real device list on a worker (ffmpeg shells take 1-3 s).
+        initial_device = c.capture.audio_device or ""
+        self._apply_audio_devices([], initial=initial_device)
+        self._refresh_audio_devices()
         self._sample_rate_spin.setValue(c.capture.audio_sample_rate)
         self._channels_spin.setValue(c.capture.audio_channels)
 
@@ -664,17 +676,27 @@ class SettingsDialog(QDialog):
     # --- audio device picker ------------------------------------------------------
 
     def _populate_audio_combo(self, *, initial: str = "") -> None:
+        """Synchronously enumerate + populate. Used at dialog open time only;
+        manual refresh after that is dispatched through a worker."""
+
         from ..capture import list_dshow_audio_devices
+
+        try:
+            devices = list_dshow_audio_devices()
+        except Exception as exc:
+            log.warning(f"Audio device enumeration failed: {exc}")
+            devices = []
+        self._apply_audio_devices(devices, initial=initial)
+
+    def _apply_audio_devices(self, devices, *, initial: str = "") -> None:
+        """Repopulate the combo from a list of device names."""
 
         self._audio_combo.blockSignals(True)
         self._audio_combo.clear()
         # Always offer a blank "no audio" choice as the first entry.
         self._audio_combo.addItem("")
-        try:
-            for name in list_dshow_audio_devices():
-                self._audio_combo.addItem(name)
-        except Exception as exc:
-            log.warning(f"Audio device enumeration failed: {exc}")
+        for name in devices:
+            self._audio_combo.addItem(name)
         # Make sure the configured device is selectable even if enumeration missed it.
         if initial and self._audio_combo.findText(initial) == -1:
             self._audio_combo.addItem(initial)
@@ -682,8 +704,37 @@ class SettingsDialog(QDialog):
         self._audio_combo.blockSignals(False)
 
     def _refresh_audio_devices(self) -> None:
+        """Async refresh: hide button, spin, repopulate on completion."""
+
         current = self._audio_combo.currentText().strip()
-        self._populate_audio_combo(initial=current)
+        self._refresh_audio_button.setVisible(False)
+        self._refresh_audio_spinner.set_accent(
+            with_accent(resolve(self._config.ui.theme), self._config.ui.accent).accent
+        )
+        self._refresh_audio_spinner.show()
+        self._refresh_audio_spinner.start()
+
+        if not hasattr(self, "_audio_pool"):
+            self._audio_pool = QThreadPool.globalInstance()
+            self._audio_signals = _AudioRefreshSignals()
+            self._audio_signals.done.connect(self._on_audio_refresh_done)
+            self._audio_signals.failed.connect(self._on_audio_refresh_failed)
+        self._pending_audio_initial = current
+        self._audio_pool.start(_AudioRefreshTask(self._audio_signals))
+
+    def _on_audio_refresh_done(self, devices: list) -> None:
+        self._apply_audio_devices(devices, initial=getattr(self, "_pending_audio_initial", ""))
+        self._refresh_audio_spinner.stop()
+        self._refresh_audio_spinner.hide()
+        self._refresh_audio_button.setVisible(True)
+
+    def _on_audio_refresh_failed(self, msg: str) -> None:
+        log.warning(f"Audio refresh failed: {msg}")
+        # Keep whatever was already in the combo; just stop spinning.
+        self._refresh_audio_spinner.stop()
+        self._refresh_audio_spinner.hide()
+        self._refresh_audio_button.setVisible(True)
+        self._refresh_audio_button.setToolTip(f"Last refresh failed: {msg}")
 
 
 def _wrap(layout) -> QWidget:
@@ -693,3 +744,25 @@ def _wrap(layout) -> QWidget:
     w.setLayout(layout)
     w.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
     return w
+
+
+class _AudioRefreshSignals(QObject):
+    done = Signal(list)
+    failed = Signal(str)
+
+
+class _AudioRefreshTask(QRunnable):
+    """Run :func:`list_dshow_audio_devices` on a worker thread."""
+
+    def __init__(self, signals: _AudioRefreshSignals) -> None:
+        super().__init__()
+        self._signals = signals
+
+    def run(self) -> None:  # pragma: no cover - thread plumbing
+        try:
+            from ..capture import list_dshow_audio_devices
+
+            devices = list(list_dshow_audio_devices())
+            self._signals.done.emit(devices)
+        except Exception as exc:
+            self._signals.failed.emit(str(exc))

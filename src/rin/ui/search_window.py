@@ -27,6 +27,8 @@ from ..rag.agent import Answer, RAGAgent
 from ..rag.search import SearchHit, search
 from ..utils.logging import get_logger
 from .icon import tinted_icon
+from .progress import Spinner
+from .theme import LIGHT, resolve, with_accent
 
 log = get_logger(__name__)
 
@@ -71,6 +73,38 @@ class _SearchEmptyState(QWidget):
     def set_text(self, title: str, hint: str) -> None:
         self._title.setText(title)
         self._hint.setText(hint)
+
+
+class _SpinnerState(QWidget):
+    """Centered :class:`Spinner` + message — used while a worker is running."""
+
+    def __init__(
+        self,
+        text: str,
+        *,
+        theme,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._spinner = Spinner(size=32, accent=theme.accent, parent=self)
+        self._label = QLabel(text)
+        self._label.setProperty("role", "empty-state-hint")
+        self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._label.setWordWrap(True)
+        self._label.setMinimumHeight(24)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(40, 24, 40, 24)
+        layout.setSpacing(12)
+        layout.addStretch()
+        layout.addWidget(self._spinner, 0, Qt.AlignmentFlag.AlignHCenter)
+        layout.addWidget(self._label)
+        layout.addStretch()
+
+    def set_text(self, text: str) -> None:
+        self._label.setText(text)
+
+    def set_theme(self, theme) -> None:
+        self._spinner.set_accent(theme.accent)
 
 
 class _WorkerSignals(QObject):
@@ -214,9 +248,14 @@ class SearchWindow(QWidget):
             "Type a few words above to find captures by meaning, not just keyword.",
             icon_name="search",
         )
+        self._results_busy = _SpinnerState(
+            "Searching captures…",
+            theme=self._theme(),
+        )
         self._results_stack = QStackedWidget()
         self._results_stack.addWidget(self._results_empty)
         self._results_stack.addWidget(self._results)
+        self._results_stack.addWidget(self._results_busy)
 
         # --- bottom: ask ------------------------------------------------------
         self._chat_container = QWidget()
@@ -296,18 +335,23 @@ class SearchWindow(QWidget):
                 "Open Settings → Analysis to pick a provider.",
             )
 
+    def _theme(self):
+        try:
+            return with_accent(resolve(self.config.ui.theme), self.config.ui.accent)
+        except Exception:
+            return LIGHT
+
     # --- slots ----------------------------------------------------------------
 
     def _do_search(self) -> None:
         q = self._query.text().strip()
         if not q:
             return
-        self._results.clear()
-        placeholder = QListWidgetItem()
-        placeholder.setText("Searching…")
-        placeholder.setFlags(Qt.ItemFlag.NoItemFlags)
-        self._results.addItem(placeholder)
-        self._results_stack.setCurrentWidget(self._results)
+        # Replace the empty / previous-results pane with a centered
+        # spinner while the worker runs.
+        self._results_busy.set_theme(self._theme())
+        self._results_busy.set_text("Searching captures…")
+        self._results_stack.setCurrentWidget(self._results_busy)
         self._pool.start(_SearchTask(q, self._signals))
 
     def _do_ask(self) -> None:
@@ -320,7 +364,8 @@ class SearchWindow(QWidget):
         self._chat_stack.setCurrentIndex(1)
         self._add_chat_bubble(q, role="user")
         self._question.clear()
-        self._add_chat_bubble("Thinking…", role="agent")
+        # Insert a spinner bubble that we'll replace when the answer arrives.
+        self._add_thinking_bubble()
         self._pool.start(_AskTask(self._agent, q, self._signals))
 
     def _on_search_done(self, hits: list[SearchHit]) -> None:
@@ -344,6 +389,13 @@ class SearchWindow(QWidget):
 
     def _on_error(self, msg: str) -> None:
         log.error(f"Search window error: {msg}")
+        # Surface in the right pane the user is currently looking at.
+        if self._results_stack.currentWidget() is self._results_busy:
+            self._results_stack.setCurrentWidget(self._results)
+            self._results.clear()
+            item = QListWidgetItem(f"Search failed: {msg}")
+            item.setFlags(Qt.ItemFlag.NoItemFlags)
+            self._results.addItem(item)
         self._replace_last_agent_bubble(f"Error: {msg}", citations=None)
 
     def _add_chat_bubble(self, text: str, *, role: str,
@@ -355,9 +407,36 @@ class SearchWindow(QWidget):
         bar = self._chat_scroll.verticalScrollBar()
         bar.setValue(bar.maximum())
 
+    def _add_thinking_bubble(self) -> None:
+        """Insert an animated 'agent is thinking' bubble (spinner + label)."""
+
+        bubble = QFrame()
+        bubble.setObjectName("card")
+        bubble.setProperty("role", "agent-bubble")
+        inner = QHBoxLayout(bubble)
+        inner.setContentsMargins(14, 10, 14, 10)
+        inner.setSpacing(10)
+        spinner = Spinner(size=18, accent=self._theme().accent, parent=bubble)
+        spinner.start()
+        label = QLabel("Thinking…")
+        label.setProperty("role", "empty-state-hint")
+        inner.addWidget(spinner, 0, Qt.AlignmentFlag.AlignVCenter)
+        inner.addWidget(label, 0, Qt.AlignmentFlag.AlignVCenter)
+        wrapper = QWidget()
+        row = QHBoxLayout(wrapper)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(bubble, 0)
+        row.addStretch()
+        bubble.setMaximumWidth(220)
+        # Marker so _replace_last_agent_bubble knows what to remove.
+        wrapper.setProperty("thinking", True)
+        self._chat_layout.insertWidget(self._chat_layout.count() - 1, wrapper)
+        bar = self._chat_scroll.verticalScrollBar()
+        bar.setValue(bar.maximum())
+
     def _replace_last_agent_bubble(self, text: str, *,
                                    citations: list[SearchHit] | None) -> None:
-        # Remove the last "Thinking…" placeholder.
+        # Remove the most recent 'thinking' placeholder (if any).
         for i in range(self._chat_layout.count() - 1, -1, -1):
             item = self._chat_layout.itemAt(i)
             w = item.widget()

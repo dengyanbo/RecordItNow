@@ -15,6 +15,7 @@ from pathlib import Path
 
 from .icon import icon_size_for, make_icon, make_recording_icon, tinted_icon
 from .notifications import notify
+from .progress import BusyOverlay, Spinner
 from .settings_dialog import SettingsDialog
 from .style import palette_to_qss
 from .theme import (
@@ -48,7 +49,9 @@ __all__ = [
     "ACCENTS",
     "DARK",
     "LIGHT",
+    "BusyOverlay",
     "SettingsDialog",
+    "Spinner",
     "Theme",
     "TrayApp",
     "contrast_ratio",

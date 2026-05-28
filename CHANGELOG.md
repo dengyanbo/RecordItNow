@@ -2,6 +2,75 @@
 
 All notable changes to RIN — Record It Now.
 
+## v0.4.2 — Spinners + busy overlays (no more freezes)
+
+Long-running operations no longer block the Qt main thread. Every
+sync call to an LLM, embedder, or ffmpeg subprocess that used to
+freeze the UI for tens of seconds now runs on a worker, and the
+affected pane shows a clear busy state.
+
+### Added
+- **`src/rin/ui/progress.py`** — two new reusable widgets:
+  - `Spinner(size, accent, thickness)` — a rotating-arc indeterminate
+    indicator drawn from scratch with `QPainter`. ~30 FPS. Starts/stops
+    via `start()` / `stop()` (also auto-starts on `showEvent`).
+  - `BusyOverlay(parent, message, theme)` — a semi-transparent surface
+    that covers any parent widget, centers a `Spinner` + message label,
+    and absorbs mouse events so the caller can't double-fire the
+    operation. Tracks parent geometry via an event filter.
+- Exported from `rin.ui.__all__` so other code can import them directly.
+
+### Changed
+- **Reports window**: `generate_report()` is now dispatched through a
+  `QRunnable` task on `QThreadPool.globalInstance()`. While running, a
+  `BusyOverlay` covers the right-pane viewer with the message
+  `Generating today's report…` / `Generating this week's report…`, and
+  the `Today` / `This week` / `Refresh` buttons disable themselves
+  until the worker emits `done` or `failed`. Errors surface in the
+  viewer with a hint pointing to the diagnostic-report flow.
+- **Settings → Capture → Audio device**: enumeration shells to ffmpeg
+  (1-3 s on a typical PC). Refresh is now async: the `Refresh` button
+  hides itself and an inline 18 px spinner spins in its slot until the
+  worker delivers the device list. Failures keep the previous list
+  intact and tag the button's tooltip with the error.
+- **Settings dialog open**: previously the dialog blocked on the
+  initial audio enumeration. Now `load_from_config` seeds the combo
+  with the currently saved device and kicks off the async refresh — the
+  dialog opens instantly even on the first show.
+- **Search & Ask window**:
+  - The results pane now switches to a centered `Spinner` + label
+    (`Searching captures…`) while the search worker runs, instead of
+    showing a plain "Searching…" placeholder row.
+  - The "agent is thinking" chat bubble now contains a real `Spinner` +
+    `Thinking…` label, replacing the static text-only bubble.
+
+### Tests
+**212 / 212 pass** (+9 since v0.4.1):
+- Spinner default size + custom size + accent setter
+- Spinner start/stop idempotency
+- Spinner minimum-size clamp at 12 px
+- BusyOverlay constructs hidden
+- BusyOverlay message round-trip
+- BusyOverlay theme swap
+- BusyOverlay tracks parent resize via event filter
+
+### Screenshots
+`docs/screenshots/after/` adds:
+- `spinner_gallery_{light,dark}.png` — 16 / 20 / 24 / 32 / 40 px spinners
+- `reports_busy_{light,dark}.png` — `BusyOverlay` covering the viewer
+- `search_busy_{light,dark}.png` — spinner placeholder in results +
+  thinking bubble in chat
+
+### Internal
+- Version bumped to `0.4.2` in `src/rin/__init__.py` and
+  `pyproject.toml`.
+- `reports_window.py` gained `_ReportSignals` + `_GenerateReportTask`.
+- `settings_dialog.py` gained `_AudioRefreshSignals` +
+  `_AudioRefreshTask` and split the sync `_populate_audio_combo` into a
+  small `_apply_audio_devices` (UI mutation only) + async path.
+
+---
+
 ## v0.4.1 — Fine-grained UI polish
 
 The v0.3.2 redesign got the layout right but the details still felt

@@ -1,15 +1,21 @@
-"""Reports browser window — v0.4.1 polish pass.
+"""Reports browser window — v0.4.2 async polish.
 
 Left rail: card-styled list of saved reports (date, kind chip,
 file name). Right pane: rendered Markdown via ``QTextBrowser`` with
 theme-aware styling. Action row beneath the list keeps the generate +
 refresh actions visually attached to the listing.
+
+Long-running operations (LLM-driven report generation) run on a
+:class:`QThreadPool` worker so the Qt main thread never blocks. A
+:class:`BusyOverlay` is raised over the viewer pane while a generation
+is in flight, and the side-rail buttons disable themselves until the
+worker signals completion.
 """
 from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QObject, QRunnable, QSize, Qt, QThreadPool, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -31,9 +37,34 @@ from ..storage import session
 from ..storage.models import Report
 from ..utils.logging import get_logger
 from .icon import tinted_icon
+from .progress import BusyOverlay
 from .theme import LIGHT, Theme, resolve, with_accent
 
 log = get_logger(__name__)
+
+
+class _ReportSignals(QObject):
+    done = Signal(object)         # (ReportResult)
+    failed = Signal(str)           # error message
+
+
+class _GenerateReportTask(QRunnable):
+    """Run :func:`generate_report` on a worker thread."""
+
+    def __init__(self, kind: str, config: RinConfig, signals: _ReportSignals) -> None:
+        super().__init__()
+        self._kind = kind
+        self._config = config
+        self._signals = signals
+
+    def run(self) -> None:  # pragma: no cover - thread plumbing
+        try:
+            period = daily_period() if self._kind == "daily" else weekly_period()
+            result = generate_report(period, self._config)
+            self._signals.done.emit(result)
+        except Exception as exc:
+            log.exception(f"Report generation failed: {exc}")
+            self._signals.failed.emit(str(exc))
 
 
 def _md_to_html(text: str, theme: Theme) -> str:
@@ -167,6 +198,11 @@ class ReportsWindow(QWidget):
         self.setWindowTitle("RIN — Reports")
         self.resize(1080, 680)
 
+        self._pool = QThreadPool.globalInstance()
+        self._signals = _ReportSignals()
+        self._signals.done.connect(self._on_report_done)
+        self._signals.failed.connect(self._on_report_failed)
+
         self._list = QListWidget()
         self._list.setProperty("role", "cards")
         self._list.setIconSize(QSize(0, 0))
@@ -188,14 +224,27 @@ class ReportsWindow(QWidget):
         self._viewer_stack.addWidget(self._empty_state)
         self._viewer_stack.addWidget(self._viewer)
 
-        gen_today = QPushButton("Today")
-        gen_today.setProperty("primary", True)
-        gen_today.clicked.connect(self._generate_today)
-        gen_week = QPushButton("This week")
-        gen_week.clicked.connect(self._generate_week)
-        refresh = QPushButton("Refresh")
-        refresh.setProperty("flat", True)
-        refresh.clicked.connect(self._refresh_list)
+        # Busy overlay floats above the viewer stack — not part of any
+        # layout so it can resize to cover its parent at show() time.
+        self._busy_host = QWidget()
+        host_layout = QVBoxLayout(self._busy_host)
+        host_layout.setContentsMargins(0, 0, 0, 0)
+        host_layout.setSpacing(0)
+        host_layout.addWidget(self._viewer_stack)
+        self._busy = BusyOverlay(
+            self._busy_host,
+            message="Generating report…",
+            theme=self._theme(),
+        )
+
+        self._gen_today_btn = QPushButton("Today")
+        self._gen_today_btn.setProperty("primary", True)
+        self._gen_today_btn.clicked.connect(self._generate_today)
+        self._gen_week_btn = QPushButton("This week")
+        self._gen_week_btn.clicked.connect(self._generate_week)
+        self._refresh_btn = QPushButton("Refresh")
+        self._refresh_btn.setProperty("flat", True)
+        self._refresh_btn.clicked.connect(self._refresh_list)
 
         action_row = QHBoxLayout()
         action_row.setContentsMargins(0, 0, 0, 0)
@@ -203,10 +252,10 @@ class ReportsWindow(QWidget):
         gen_label = QLabel("Generate")
         gen_label.setProperty("heading", "subtle")
         action_row.addWidget(gen_label, 0, Qt.AlignmentFlag.AlignVCenter)
-        action_row.addWidget(gen_today)
-        action_row.addWidget(gen_week)
+        action_row.addWidget(self._gen_today_btn)
+        action_row.addWidget(self._gen_week_btn)
         action_row.addStretch()
-        action_row.addWidget(refresh)
+        action_row.addWidget(self._refresh_btn)
 
         side = QVBoxLayout()
         side.setContentsMargins(24, 24, 16, 24)
@@ -248,7 +297,7 @@ class ReportsWindow(QWidget):
 
         viewer_col = QVBoxLayout()
         viewer_col.setContentsMargins(24, 24, 24, 24)
-        viewer_col.addWidget(self._viewer_stack)
+        viewer_col.addWidget(self._busy_host)
 
         viewer_widget = QWidget()
         viewer_widget.setLayout(viewer_col)
@@ -305,16 +354,47 @@ class ReportsWindow(QWidget):
         self._viewer.setHtml(_md_to_html(text, self._theme()))
         self._viewer_stack.setCurrentWidget(self._viewer)
 
+    # --- generation (async) -------------------------------------------------------
+
+    def _set_actions_enabled(self, enabled: bool) -> None:
+        for btn in (self._gen_today_btn, self._gen_week_btn, self._refresh_btn):
+            btn.setEnabled(enabled)
+
+    def _start_generation(self, kind: str, label: str) -> None:
+        """Kick off a report-generation worker and raise the busy overlay."""
+
+        if not self._busy.isHidden():
+            # Already running — ignore re-clicks (also defensive: buttons
+            # are disabled, but a hotkey could still arrive).
+            return
+        self._busy.set_theme(self._theme())
+        self._busy.set_message(f"Generating {label} report…")
+        self._busy.show()
+        self._set_actions_enabled(False)
+        self._pool.start(_GenerateReportTask(kind, self.config, self._signals))
+
     def _generate_today(self) -> None:
-        self._viewer.setPlainText("Generating today's report…")
-        self._viewer_stack.setCurrentWidget(self._viewer)
-        result = generate_report(daily_period(), self.config)
-        self._viewer.setHtml(_md_to_html(result.body, self._theme()))
-        self._refresh_list()
+        self._start_generation("daily", "today's")
 
     def _generate_week(self) -> None:
-        self._viewer.setPlainText("Generating weekly report…")
+        self._start_generation("weekly", "this week's")
+
+    def _on_report_done(self, result) -> None:
+        self._busy.hide()
+        self._set_actions_enabled(True)
+        try:
+            body = result.body
+        except AttributeError:
+            body = str(result)
+        self._viewer.setHtml(_md_to_html(body, self._theme()))
         self._viewer_stack.setCurrentWidget(self._viewer)
-        result = generate_report(weekly_period(), self.config)
-        self._viewer.setHtml(_md_to_html(result.body, self._theme()))
         self._refresh_list()
+
+    def _on_report_failed(self, msg: str) -> None:
+        self._busy.hide()
+        self._set_actions_enabled(True)
+        self._viewer.setPlainText(
+            f"Report generation failed:\n\n{msg}\n\n"
+            "Check rin.log for details, or run Tray → Generate diagnostic report."
+        )
+        self._viewer_stack.setCurrentWidget(self._viewer)
