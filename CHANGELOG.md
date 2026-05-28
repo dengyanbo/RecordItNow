@@ -2,6 +2,68 @@
 
 All notable changes to RIN — Record It Now.
 
+## v0.4.0 — Project hygiene + small polish
+
+Focus of this release is making RIN a healthy open-source project: real
+CI, proper governance docs, a diagnostic-report helper for support
+cases, and a few quality-of-life touches.
+
+### Added
+- **GitHub Actions CI** (`.github/workflows/ci.yml`) — runs ruff +
+  pytest + smoke on `windows-latest` for Python 3.11 and 3.12 on every
+  push and PR. Uploads coverage XML as an artefact.
+- **Automated release workflow** (`.github/workflows/release.yml`) —
+  on `git push --tags v*.*.*` builds the release zip via
+  `scripts/build_release.ps1 -SkipChecks` and publishes a GitHub Release
+  with the asset. No more manual `gh release create`.
+- **Diagnostic-report helper** — new tray menu entry **🩺 Generate
+  diagnostic report** (also runnable as `python -m rin.utils.diagnostics`).
+  Writes a redacted zip containing `config.toml` (API keys scrubbed),
+  recent `rin.log` files, Python / OS / FFmpeg versions, monitor list,
+  `pip freeze`, and corpus-size counts (no captures, no summaries).
+  Safe to share on issues.
+- **Reserved-key warning in learn mode** — `LearnRecorder` now exposes
+  `.reserved_warning` (`(reason, severity)` tuple). The Settings dialog
+  and onboarding flow can use this to warn before saving a binding like
+  `Alt+Tab`, `Ctrl+C`, or `Enter`. Table of reserved combinations lives
+  in `src/rin/input/reserved_keys.py`.
+- **Code coverage configuration** — `[tool.coverage]` in `pyproject.toml`
+  with branch coverage on, omitting purely Qt-loop code from the
+  reporting target. CI uploads the `coverage.xml`.
+- **Governance documents**:
+  - `CONTRIBUTING.md` — dev setup, branch naming, commit style,
+    co-author trailer, and "the five hard rules" (no GPL deps, no
+    bundled FFmpeg, UTF-8 subprocess decoding, Qt-main-thread
+    marshalling, no hard-coded styling).
+  - `SECURITY.md` — disclosure process via GitHub Security Advisories.
+  - `CODE_OF_CONDUCT.md` — Contributor Covenant 2.1.
+  - `.github/ISSUE_TEMPLATE/{bug,feature,config}.yml` — structured
+    issue forms.
+  - `.github/pull_request_template.md` — PR checklist enforcing the
+    five rules.
+- **Architecture deep-dive** — `docs/architecture.md` with Mermaid
+  sequence diagrams for the three core flows (tap → captured row,
+  analysis tick → summary → vector, user asks → RAG answer).
+- **Troubleshooting guide** — `docs/troubleshooting.md` consolidating
+  every known failure mode (RDP gdigrab, ffmpeg stderr deadlock,
+  cp1252 UnicodeDecode, missing winget, …) plus the diagnostic-report
+  workflow.
+
+### Tests
+**195 / 195 pass** (+19 since v0.3.2):
+- 10 for `input.reserved_keys.lookup_reserved`
+- 7 for `utils.diagnostics.build_report` (config redaction, missing
+  config, empty root, monitor enumeration, capture counts)
+- 2 extra `LearnRecorder` cases (reserved-key surfaced as warning)
+
+### Internal
+- Project version bumped to `0.4.0` in `src/rin/__init__.py` and
+  `pyproject.toml`.
+- `src/rin/input/__init__.py` re-exports `RESERVED_KEYS` and
+  `lookup_reserved` for downstream code.
+
+---
+
 ## v0.3.2 — Fluent 2 calibration pass
 
 A second look at the UI revealed several layout flaws that didn't match

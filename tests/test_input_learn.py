@@ -16,6 +16,31 @@ def test_first_press_is_captured() -> None:
     assert binding.key == "f9"
     assert binding.hold_threshold_ms == 750
     assert binding.label == "Key: f9"
+    # f9 is not on the reserved list — no warning
+    assert rec.reserved_warning is None
+
+
+def test_reserved_key_surfaces_warning() -> None:
+    rec = LearnRecorder()
+    rec.handle_event(
+        InputEvent(kind="press", source="keyboard", identifier="alt+tab")
+    )
+    assert rec.captured is not None
+    warn = rec.reserved_warning
+    assert warn is not None
+    _, severity = warn
+    assert severity == "error"
+
+
+def test_warning_severity_reserved() -> None:
+    rec = LearnRecorder()
+    rec.handle_event(
+        InputEvent(kind="press", source="keyboard", identifier="f12")
+    )
+    warn = rec.reserved_warning
+    assert warn is not None
+    _, severity = warn
+    assert severity == "warning"
 
 
 def test_release_events_are_ignored() -> None:

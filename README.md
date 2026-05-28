@@ -2,10 +2,11 @@
 
 > **Languages:** **English** · [中文](README.zh-CN.md)
 
-[![tests](https://img.shields.io/badge/tests-176%20%2F%20176-brightgreen)](#testing)
+[![tests](https://img.shields.io/badge/tests-195%20%2F%20195-brightgreen)](#testing)
 [![python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](#requirements)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D4)](#requirements)
+[![CI](https://github.com/dengyanbo/RecordItNow/actions/workflows/ci.yml/badge.svg)](https://github.com/dengyanbo/RecordItNow/actions/workflows/ci.yml)
 [![release](https://img.shields.io/github/v/release/dengyanbo/RecordItNow?display_name=tag)](https://github.com/dengyanbo/RecordItNow/releases)
 
 A Windows tray app that **captures your screen with a single button, then
@@ -115,6 +116,10 @@ After install:
 
 ## How it works (architecture)
 
+> Looking for a deeper dive (sequence diagrams, process model, design rationale)?
+> See [`docs/architecture.md`](docs/architecture.md). Hit a problem? See
+> [`docs/troubleshooting.md`](docs/troubleshooting.md).
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  System tray (PySide6)                                                  │
@@ -162,7 +167,7 @@ After install:
 | `src/rin/reports/` | 308 L | Daily / weekly Markdown generator + APScheduler. |
 | `src/rin/ui/` | 2094 L | PySide6 tray + settings + reports + search windows. `theme.py` + `style.py` own the QSS design tokens. |
 | `src/rin/utils/` | 188 L | Logging (loguru), autostart (HKCU registry), panic hotkey, Windows helpers. |
-| `tests/` | 38 files | 176 tests, all green. Use `pytest -q`. |
+| `tests/` | 40 files | 195 tests, all green. Run with `pytest -q`. |
 | `scripts/` | 4 files | `install.ps1` (user installer), `build_release.ps1` (maintainer packaging), `prefetch_models.py`, `dev_run.ps1`. |
 
 ### Data flow: one tap to a searchable answer
@@ -372,7 +377,7 @@ Optional extras (declared in `pyproject.toml`):
 ## Testing
 
 ```powershell
-pytest -q           # all 176 tests, ~60-90 s on a warm cache
+pytest -q           # all 195 tests, ~60-90 s on a warm cache
 ruff check src tests scripts
 python -m rin --smoke
 ```
@@ -380,6 +385,11 @@ python -m rin --smoke
 Tests live under `tests/` and are organized one file per subsystem
 (`test_capture_recorder.py`, `test_rag_agent.py`, …). Heavy I/O is mocked
 via dependency-injection points already wired into each module.
+
+CI runs on every push and PR via [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
+(ruff + pytest + smoke on Python 3.11 and 3.12 on `windows-latest`). Tagged
+releases (`v*.*.*`) build the release zip automatically via
+[`.github/workflows/release.yml`](.github/workflows/release.yml).
 
 ---
 
@@ -443,10 +453,13 @@ Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\RIN.lnk"
 
 ## Project status & changelog
 
-- Current: **v0.3.2** (released 2026-05-27)
-- Test totals: **176 / 176 pytest pass**, ruff clean
-- Build / lint: green on Windows 10 / 11 + Python 3.11 / 3.12 / 3.13
+- Current: **v0.4.0** (released 2026-05-28)
+- Test totals: **195 / 195 pytest pass**, ruff clean
+- Build / lint: green on Windows 10 / 11 + Python 3.11 / 3.12
+- CI runs on every push: [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
 - Full release history: [`CHANGELOG.md`](CHANGELOG.md)
+- Want to contribute? See [`CONTRIBUTING.md`](CONTRIBUTING.md) and
+  [`AGENTS.md`](AGENTS.md). Security concerns: [`SECURITY.md`](SECURITY.md).
 
 ---
 

@@ -1,0 +1,63 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build + publish ${{ github.ref_name }}
+    runs-on: windows-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install RIN with all extras
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[all,dev]"
+
+      - name: Verify code is green before release
+        env:
+          QT_QPA_PLATFORM: minimal
+        run: |
+          ruff check src tests scripts
+          pytest -q
+
+      - name: Build release zip
+        shell: pwsh
+        run: |
+          # scripts/build_release.ps1 zips a minimal source tree into dist/.
+          # We already ran ruff + pytest in the previous step, so skip them
+          # inside the build script.
+          ./scripts/build_release.ps1 -SkipChecks
+
+      - name: Inspect dist
+        shell: pwsh
+        run: |
+          Get-ChildItem dist | Format-Table Name, Length
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $zip = Get-ChildItem "dist/RIN-$tag-windows.zip"
+          if (-not $zip) { throw "Expected dist/RIN-$tag-windows.zip but did not find it" }
+          gh release create $tag $zip.FullName `
+            --title "RIN $tag" `
+            --notes "Automated release from tag $tag. See CHANGELOG.md for details." `
+            --verify-tag

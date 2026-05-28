@@ -12,8 +12,10 @@ from .base import EventKind, InputEvent, ListenerBase, binding_matches_event
 from .gesture import GestureRecognizer, GestureState, GestureStateMachine
 from .learn_mode import LearnRecorder
 from .manager import InputManager
+from .reserved_keys import RESERVED_KEYS, Severity, lookup_reserved
 
 __all__ = [
+    "RESERVED_KEYS",
     "EventKind",
     "GestureRecognizer",
     "GestureState",
@@ -22,5 +24,7 @@ __all__ = [
     "InputManager",
     "LearnRecorder",
     "ListenerBase",
+    "Severity",
     "binding_matches_event",
+    "lookup_reserved",
 ]

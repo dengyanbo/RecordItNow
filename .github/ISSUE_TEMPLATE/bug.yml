@@ -1,0 +1,75 @@
+name: 🐛 Bug report
+description: Something is broken or behaving unexpectedly.
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. Please run
+        **Tray → 🩺 Generate diagnostic report** (or `python -m rin.utils.diagnostics`)
+        and add the resulting zip to this issue — it speeds up debugging dramatically.
+
+  - type: input
+    id: rin-version
+    attributes:
+      label: RIN version
+      description: Run `python -m rin --version` or look at the bottom of the Settings dialog.
+      placeholder: e.g. 0.4.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11
+        - Windows 10
+        - Windows Server (RDP)
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear, concise description of the bug.
+      placeholder: When I press my trigger key, the screenshot is blank.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open Settings → Trigger
+        2. Bind F9
+        3. Tap F9
+        4. Notice the captured PNG is 0x0
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log lines (optional)
+      description: From `%LOCALAPPDATA%\RIN\logs\rin.log` — feel free to redact.
+      render: shell
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: I searched existing issues and could not find a duplicate.
+          required: true
+        - label: I am willing to share a diagnostic report if needed.

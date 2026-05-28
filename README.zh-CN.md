@@ -2,7 +2,7 @@
 
 > **语言：** [English](README.md) · **中文**
 
-[![tests](https://img.shields.io/badge/tests-176%20%2F%20176-brightgreen)](#测试)
+[![tests](https://img.shields.io/badge/tests-195%20%2F%20195-brightgreen)](#测试)
 [![python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](#环境要求)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D4)](#环境要求)
@@ -158,7 +158,7 @@
 | `src/rin/reports/` | 308 L | 每日 / 每周 Markdown 生成器 + APScheduler。 |
 | `src/rin/ui/` | 2094 L | PySide6 托盘 + 设置 + 报告 + 搜索窗口。`theme.py` + `style.py` 拥有所有 QSS design tokens。 |
 | `src/rin/utils/` | 188 L | 日志（loguru）、自启动（HKCU 注册表）、紧急暂停热键、Windows 助手。 |
-| `tests/` | 38 个文件 | 176 个测试，全部通过。用 `pytest -q`。 |
+| `tests/` | 40 个文件 | 195 个测试，全部通过。用 `pytest -q`。 |
 | `scripts/` | 4 个文件 | `install.ps1`（用户安装器）、`build_release.ps1`（打包脚本）、`prefetch_models.py`、`dev_run.ps1`。 |
 
 ### 数据流：从轻按一下到可搜索的答案
@@ -363,7 +363,7 @@ pytest -q
 ## 测试
 
 ```powershell
-pytest -q           # 全部 176 个测试，热缓存约 60-90 秒
+pytest -q           # 全部 195 个测试，热缓存约 60-90 秒
 ruff check src tests scripts
 python -m rin --smoke
 ```
@@ -432,10 +432,13 @@ Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\RIN.lnk"
 
 ## 项目状态 & 变更日志
 
-- 当前版本：**v0.3.2**（2026-05-27 发布）
-- 测试：**176 / 176 pytest 通过**，ruff 干净
-- 构建 / lint：Windows 10 / 11 + Python 3.11 / 3.12 / 3.13 全部绿
-- 完整变更历史：[`CHANGELOG.md`](CHANGELOG.md)
+- 当前版本：**v0.4.0**（2026-05-28 发布）
+- 测试：**195 / 195 pytest 通过**，ruff 清洁
+- 构建 / lint：在 Windows 10 / 11 + Python 3.11 / 3.12 上绿
+- CI：每次 push 都跑 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
+- 完整发布历史：[`CHANGELOG.md`](CHANGELOG.md)
+- 想贡献？见 [`CONTRIBUTING.md`](CONTRIBUTING.md) 和 [`AGENTS.md`](AGENTS.md)。
+  安全问题：[`SECURITY.md`](SECURITY.md)。
 
 ---
 

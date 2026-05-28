@@ -1,0 +1,47 @@
+name: 💡 Feature request
+description: Suggest a new capability or improvement.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing, please skim the
+        [pending todos in CHANGELOG.md](../blob/main/CHANGELOG.md)
+        and existing issues — your idea may already be queued.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the user pain point, not the solution.
+      placeholder: |
+        I want to take RIN with me to a new machine but there is no
+        way to export my reports and config in one operation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      placeholder: |
+        Settings → Data → Export everything → zip with config.toml,
+        sqlite db, chroma snapshot, and reports.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: How important is this to you?
+      options:
+        - Blocker — I cannot use RIN without it
+        - Nice to have
+        - Idea / future
+    validations:
+      required: true

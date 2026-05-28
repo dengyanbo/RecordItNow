@@ -174,6 +174,12 @@ class TrayApp(QObject):
 
         self._menu.addSeparator()
 
+        self._diagnostic_action = QAction("🩺 Generate diagnostic report", self)
+        self._diagnostic_action.triggered.connect(self._generate_diagnostic)
+        self._menu.addAction(self._diagnostic_action)
+
+        self._menu.addSeparator()
+
         quit_action = QAction("Quit", self)
         quit_action.triggered.connect(self._quit)
         self._menu.addAction(quit_action)
@@ -248,6 +254,41 @@ class TrayApp(QObject):
         def _do() -> None:
             # Manual click should bypass the working-hours/idle gate.
             self.analysis_scheduler.trigger_now(force=True)
+
+        self._pool.start(_Task(_do))
+
+    def _generate_diagnostic(self) -> None:
+        """Build a redacted diagnostic zip and reveal it in Explorer."""
+
+        notify(
+            "Building diagnostic report",
+            "Collecting logs and environment info (no captures included).",
+        )
+
+        def _do() -> None:
+            try:
+                from ..utils.diagnostics import build_report
+
+                path = build_report()
+            except Exception as exc:
+                log.error(f"Diagnostic report failed: {exc}")
+                notify(
+                    "Diagnostic report failed",
+                    f"{exc.__class__.__name__}: {exc}",
+                    level="warning",
+                )
+                return
+            notify(
+                "Diagnostic report ready",
+                f"Saved to {path.name}. Review before sharing.",
+            )
+            # Open File Explorer with the zip selected. Wrapped in
+            # contextlib.suppress so a missing explorer.exe (e.g. headless
+            # CI) does not surface as a user-facing toast.
+            with contextlib.suppress(Exception):
+                import subprocess
+
+                subprocess.Popen(["explorer.exe", "/select,", str(path)])
 
         self._pool.start(_Task(_do))
 

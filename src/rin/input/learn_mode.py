@@ -13,6 +13,7 @@ from collections.abc import Callable
 from ..config import TriggerBinding
 from ..utils.logging import get_logger
 from .base import InputEvent
+from .reserved_keys import Severity, lookup_reserved
 
 log = get_logger(__name__)
 
@@ -30,10 +31,25 @@ class LearnRecorder:
         self.on_captured = on_captured
         self._captured: TriggerBinding | None = None
         self._done = threading.Event()
+        # Populated by ``handle_event`` if the captured binding collides
+        # with a known reserved key (see ``reserved_keys.RESERVED_KEYS``).
+        # ``None`` means "no known conflict" — not necessarily safe, just
+        # not on our radar.
+        self._reserved_warning: tuple[str, Severity] | None = None
 
     @property
     def captured(self) -> TriggerBinding | None:
         return self._captured
+
+    @property
+    def reserved_warning(self) -> tuple[str, Severity] | None:
+        """Return ``(reason, severity)`` if the captured binding is reserved.
+
+        Callers (e.g. the Settings dialog) can surface this to the user
+        as a warning or block save outright on ``severity == "error"``.
+        """
+
+        return self._reserved_warning
 
     def handle_event(self, event: InputEvent) -> None:
         if self._done.is_set() or event.kind != "press":
@@ -49,8 +65,16 @@ class LearnRecorder:
             label=_default_label(event),
         )
         self._captured = binding
+        self._reserved_warning = lookup_reserved(binding)
         self._done.set()
-        log.info(f"Learn-mode captured binding: {binding}")
+        if self._reserved_warning is not None:
+            reason, severity = self._reserved_warning
+            log.warning(
+                "Learn-mode captured a reserved binding "
+                f"({severity}): {binding} — {reason}"
+            )
+        else:
+            log.info(f"Learn-mode captured binding: {binding}")
         if self.on_captured is not None:
             self.on_captured(binding)
 
