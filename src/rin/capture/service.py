@@ -11,8 +11,10 @@ recording finalize is still in progress.
 from __future__ import annotations
 
 import threading
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
 from ..config import RinConfig
 from ..storage import session
@@ -29,6 +31,22 @@ from .screenshot import capture_screenshot
 log = get_logger(__name__)
 
 
+SkipReason = Literal["paused", "blacklist", "disk_full", "failed", "already_recording", "no_monitors"]
+
+
+@dataclass(frozen=True)
+class SkipInfo:
+    """Why the most recent capture/record call returned ``None``/``False``.
+
+    Set by every short-circuit branch in :class:`CaptureService` so the
+    tray UI can render a contextual notification instead of a generic
+    "Screenshot failed". Reset on every new call.
+    """
+
+    reason: SkipReason
+    detail: str = ""
+
+
 class CaptureService:
     """Orchestrates screenshots + recordings and persists metadata."""
 
@@ -41,6 +59,7 @@ class CaptureService:
         self._monitors: list[MonitorInfo] | None = None
         self._cipher: CaptureCipher | None = None
         self._encrypt_unavailable_logged = False
+        self._last_skip: SkipInfo | None = None
 
     # --- lifecycle ----------------------------------------------------------------
 
@@ -56,17 +75,39 @@ class CaptureService:
     def is_recording(self) -> bool:
         return self._recorder is not None
 
+    def last_skip(self) -> SkipInfo | None:
+        """Why the most recent ``take_screenshot`` / ``start_recording``
+        call returned ``None``/``False``. ``None`` means the last call
+        either succeeded or has never been invoked.
+
+        UI layers should read this immediately after a falsy return so
+        they can show a context-appropriate notification (e.g. "Captures
+        paused until 17:06" rather than a generic "Screenshot failed").
+        """
+
+        return self._last_skip
+
     # --- screenshot ---------------------------------------------------------------
 
     def take_screenshot(self) -> int | None:
         with self._lock:
+            self._last_skip = None
             if not self._guard_disk():
+                self._last_skip = SkipInfo("disk_full", "Free up space and try again")
                 return None
             paused_until = self._active_pause_until()
             if paused_until is not None:
+                self._last_skip = SkipInfo(
+                    "paused",
+                    f"Resumes at {paused_until.strftime('%H:%M')}",
+                )
                 log.info(f"Skipping screenshot: captures paused until {paused_until.isoformat()}")
                 return None
             if not is_capture_allowed(self.config.privacy.app_blacklist):
+                self._last_skip = SkipInfo(
+                    "blacklist",
+                    "Foreground app matched the privacy list",
+                )
                 log.info("Skipping screenshot: foreground window matched privacy blacklist")
                 return None
             cipher = self._capture_cipher() if self.config.privacy.encrypt_at_rest else None
@@ -77,6 +118,7 @@ class CaptureService:
                     cipher=cipher,
                 )
             except Exception as exc:
+                self._last_skip = SkipInfo("failed", str(exc)[:120])
                 log.error(f"Screenshot failed: {exc}")
                 return None
             self._record_quick_note_if_enabled(cap_id)
@@ -91,17 +133,28 @@ class CaptureService:
         recorder_factory=None,
     ) -> bool:
         with self._lock:
+            self._last_skip = None
             if self._recorder is not None:
+                self._last_skip = SkipInfo(
+                    "already_recording",
+                    "A recording is already in progress",
+                )
                 log.warning("start_recording called while already recording; ignoring")
                 return False
             if not self._guard_disk():
+                self._last_skip = SkipInfo("disk_full", "Free up space and try again")
                 return False
             paused_until = self._active_pause_until()
             if paused_until is not None:
+                self._last_skip = SkipInfo(
+                    "paused",
+                    f"Resumes at {paused_until.strftime('%H:%M')}",
+                )
                 log.info(f"Skipping recording start: captures paused until {paused_until.isoformat()}")
                 return False
             monitors = self._monitors or enumerate_monitors()
             if not monitors:
+                self._last_skip = SkipInfo("no_monitors", "No displays detected")
                 log.error("No monitors detected; cannot start recording")
                 return False
 
@@ -131,6 +184,7 @@ class CaptureService:
                     )
                 self._recorder.start()
             except Exception as exc:
+                self._last_skip = SkipInfo("failed", str(exc)[:120])
                 log.error(f"start_recording failed: {exc}")
                 self._recorder = None
                 self._recording_folder = None

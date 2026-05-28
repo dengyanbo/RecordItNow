@@ -233,6 +233,36 @@ class TrayApp(QObject):
 
     # --- slots --------------------------------------------------------------------
 
+    # Map skip-reasons returned by CaptureService.last_skip() to user-facing
+    # notification titles + severity. Kept module-level so both the screenshot
+    # and recording paths share the same vocabulary.
+    _SKIP_NOTIFICATION: dict[str, tuple[str, str]] = {
+        "paused": ("Captures paused", "info"),
+        "blacklist": ("Skipped — privacy filter", "info"),
+        "disk_full": ("Not enough disk space", "warning"),
+        "no_monitors": ("No displays detected", "warning"),
+        "already_recording": ("Already recording", "info"),
+        "failed": ("Capture failed", "warning"),
+    }
+
+    def _notify_skip(self, fallback_title: str) -> None:
+        """Render a context-appropriate toast from ``CaptureService.last_skip()``.
+
+        Reads the service's last-skip record (set inside the service's own
+        lock right before it returned ``None``/``False``) so users see
+        e.g. *Captures paused — Resumes at 17:06* rather than a generic
+        *Capture failed*.
+        """
+
+        skip = self.capture_service.last_skip()
+        if skip is None:
+            notify(fallback_title, "Check the log for details.", level="warning")
+            return
+        title, level = self._SKIP_NOTIFICATION.get(
+            skip.reason, (fallback_title, "warning")
+        )
+        notify(title, skip.detail, level=level)
+
     def _on_shot_requested(self) -> None:
         if self.input_manager.is_paused():
             return
@@ -243,7 +273,7 @@ class TrayApp(QObject):
                 self.shot_captured.emit(cap_id)
                 notify("Screenshot saved", f"capture_id={cap_id}")
             else:
-                notify("Screenshot failed", "Check the log for details.", level="warning")
+                self._notify_skip("Screenshot failed")
 
         self._pool.start(_Task(_do))
 
@@ -261,7 +291,7 @@ class TrayApp(QObject):
                 self._pulse.start()
                 self._record_action.setText("⏹  Stop recording")
             else:
-                notify("Recording failed to start", "Check the log for details.", level="warning")
+                self._notify_skip("Recording failed to start")
 
         self._pool.start(_Task(_do))
 
