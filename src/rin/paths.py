@@ -51,6 +51,27 @@ def reports_dir() -> Path:
     return _ensure(root_dir() / "reports")
 
 
+def archives_dir() -> Path:
+    """Where ``BucketScheduler`` writes per-skill archive Markdown (v0.5+).
+
+    Layout: ``reports_dir()/archives/<skill_name>/<bucket_key>.md``.
+    Returned path is created on first read.
+    """
+
+    return _ensure(reports_dir() / "archives")
+
+
+def skills_dir() -> Path:
+    """User-installable skill directory (v0.5+).
+
+    Each subdirectory must contain a ``skill.py`` that exports a
+    ``SKILL`` module-level object (an instance of
+    :class:`~rin.skills.base.Skill`). Honors ``RIN_DATA_DIR``.
+    """
+
+    return _ensure(root_dir() / "skills")
+
+
 def chroma_dir() -> Path:
     return _ensure(root_dir() / "chroma")
 

@@ -2,7 +2,7 @@
 
 > **Languages:** **English** · [中文](README.zh-CN.md)
 
-[![tests](https://img.shields.io/badge/tests-212%20%2F%20212-brightgreen)](#testing)
+[![tests](https://img.shields.io/badge/tests-233%20%2F%20233-brightgreen)](#testing)
 [![python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](#requirements)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D4)](#requirements)
@@ -453,8 +453,8 @@ Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\RIN.lnk"
 
 ## Project status & changelog
 
-- Current: **v0.4.2** (released 2026-05-28)
-- Test totals: **212 / 212 pytest pass**, ruff clean
+- Current: **v0.5.0** (released 2026-05-28)
+- Test totals: **233 / 233 pytest pass**, ruff clean
 - Build / lint: green on Windows 10 / 11 + Python 3.11 / 3.12
 - CI runs on every push: [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
 - Full release history: [`CHANGELOG.md`](CHANGELOG.md)

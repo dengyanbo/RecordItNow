@@ -24,7 +24,35 @@ from sqlalchemy.engine import Engine
 
 # (target_version, sql_or_fn). ``fn`` receives the Engine and runs inside its own transaction.
 MIGRATIONS: list[tuple[int, str | Callable[[Engine], None]]] = [
-    # e.g. (1, "ALTER TABLE captures ADD COLUMN auto_tagged INTEGER DEFAULT 0"),
+    # v0.5.0: skill-driven bucket categorization (see rin.skills).
+    (
+        1,
+        """
+        CREATE TABLE IF NOT EXISTS buckets (
+            id           INTEGER PRIMARY KEY,
+            skill_name   VARCHAR(64)  NOT NULL,
+            key          VARCHAR(256) NOT NULL,
+            title        TEXT         NOT NULL,
+            extra_json   TEXT,
+            status       VARCHAR(16)  NOT NULL DEFAULT 'active',
+            opened_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            closed_at    DATETIME,
+            archive_path TEXT,
+            UNIQUE (skill_name, key)
+        );
+        CREATE INDEX IF NOT EXISTS ix_buckets_skill_name ON buckets (skill_name);
+        CREATE INDEX IF NOT EXISTS ix_buckets_key        ON buckets (key);
+        CREATE INDEX IF NOT EXISTS ix_buckets_opened_at  ON buckets (opened_at);
+        CREATE TABLE IF NOT EXISTS capture_buckets (
+            capture_id INTEGER NOT NULL,
+            bucket_id  INTEGER NOT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (capture_id, bucket_id),
+            FOREIGN KEY (capture_id) REFERENCES captures (id) ON DELETE CASCADE,
+            FOREIGN KEY (bucket_id)  REFERENCES buckets (id)  ON DELETE CASCADE
+        );
+        """,
+    ),
 ]
 
 CURRENT_VERSION = max((m[0] for m in MIGRATIONS), default=0)

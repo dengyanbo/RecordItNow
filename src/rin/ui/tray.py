@@ -19,6 +19,7 @@ from ..capture import CaptureService
 from ..config import RinConfig, TriggerBinding
 from ..input import InputManager
 from ..reports import ReportsScheduler
+from ..skills.scheduler import BucketScheduler
 from ..utils.logging import get_logger
 from ..utils.panic import PanicHotkey
 from .icon import PulseIconAnimator, make_icon
@@ -65,6 +66,7 @@ class TrayApp(QObject):
         input_manager: InputManager | None = None,
         analysis_scheduler: AnalysisScheduler | None = None,
         reports_scheduler: ReportsScheduler | None = None,
+        bucket_scheduler: BucketScheduler | None = None,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
@@ -73,6 +75,7 @@ class TrayApp(QObject):
         self.input_manager = input_manager or InputManager(config, parent=self)
         self.analysis_scheduler = analysis_scheduler or AnalysisScheduler(config)
         self.reports_scheduler = reports_scheduler or ReportsScheduler(config)
+        self.bucket_scheduler = bucket_scheduler or BucketScheduler(config)
         self._pool = QThreadPool.globalInstance()
 
         self.tray = QSystemTrayIcon(make_icon(theme=self._current_theme()), parent=self)
@@ -112,6 +115,7 @@ class TrayApp(QObject):
         self.input_manager.start()
         self.analysis_scheduler.start()
         self.reports_scheduler.start()
+        self.bucket_scheduler.start()
         self._panic_hotkey.install()
         self.tray.show()
         notify(
@@ -134,6 +138,7 @@ class TrayApp(QObject):
             self._pulse.stop()
         self.analysis_scheduler.stop()
         self.reports_scheduler.stop()
+        self.bucket_scheduler.stop()
         self.input_manager.stop()
         self.tray.hide()
 

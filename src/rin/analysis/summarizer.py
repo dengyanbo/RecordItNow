@@ -156,6 +156,24 @@ def analyze_capture(
         analysis_id = analysis.id
 
     _push_to_index(capture_id, summary + "\n" + all_ocr, embedder)
+
+    # v0.5+: hand the capture to every enabled skill for categorization.
+    # Failures inside a skill are isolated by classify_capture itself, but
+    # we still wrap the call so a top-level crash doesn't poison the
+    # batch.
+    try:
+        from ..skills.pipeline import classify_capture
+
+        classify_capture(
+            capture_id,
+            cfg,
+            summary=summary,
+            ocr_text=all_ocr,
+            transcript=transcript_obj.text if transcript_obj else "",
+        )
+    except Exception as exc:  # pragma: no cover - defensive boundary
+        log.warning(f"Skill classification failed for capture {capture_id}: {exc}")
+
     log.info(f"Analyzed capture {capture_id} → analysis_id={analysis_id}")
     return analysis_id
 

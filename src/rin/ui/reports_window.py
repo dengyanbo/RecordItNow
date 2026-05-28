@@ -34,7 +34,7 @@ from ..config import RinConfig
 from ..reports import generate_report, weekly_period
 from ..reports.generator import daily_period
 from ..storage import session
-from ..storage.models import Report
+from ..storage.models import Bucket, Report
 from ..utils.logging import get_logger
 from .icon import tinted_icon
 from .progress import BusyOverlay
@@ -287,6 +287,19 @@ class ReportsWindow(QWidget):
         side.addWidget(self._list, 1)
         side.addLayout(action_row)
 
+        # Archives section: skill-driven bucket archives (v0.5+).
+        side.addSpacing(8)
+        arch_heading = QLabel("Archives")
+        arch_heading.setProperty("heading", "subtle")
+        side.addWidget(arch_heading)
+        self._archives_list = QListWidget()
+        self._archives_list.setProperty("role", "cards")
+        self._archives_list.setSpacing(0)
+        self._archives_list.setFrameShape(QFrame.Shape.NoFrame)
+        self._archives_list.setMaximumHeight(180)
+        self._archives_list.itemClicked.connect(self._on_archive_clicked)
+        side.addWidget(self._archives_list)
+
         side_widget = QWidget()
         side_widget.setLayout(side)
         side_widget.setFixedWidth(320)
@@ -331,14 +344,56 @@ class ReportsWindow(QWidget):
             empty_item = QListWidgetItem("No reports yet — click Generate today.")
             empty_item.setFlags(Qt.ItemFlag.NoItemFlags)
             self._list.addItem(empty_item)
+        else:
+            for r in rows:
+                card = _ReportCard(r)
+                item = QListWidgetItem()
+                item.setSizeHint(card.sizeHint())
+                item.setData(Qt.ItemDataRole.UserRole, r.markdown_path)
+                self._list.addItem(item)
+                self._list.setItemWidget(item, card)
+        self._refresh_archives()
+
+    def _refresh_archives(self) -> None:
+        """Populate the Archives list with closed skill buckets."""
+
+        self._archives_list.clear()
+        try:
+            with session() as s:
+                rows = list(
+                    s.scalars(
+                        select(Bucket)
+                        .where(Bucket.status == "archived")
+                        .order_by(Bucket.closed_at.desc())
+                    )
+                )
+        except Exception as exc:
+            log.warning(f"Cannot load archives: {exc}")
             return
-        for r in rows:
-            card = _ReportCard(r)
-            item = QListWidgetItem()
-            item.setSizeHint(card.sizeHint())
-            item.setData(Qt.ItemDataRole.UserRole, r.markdown_path)
-            self._list.addItem(item)
-            self._list.setItemWidget(item, card)
+        if not rows:
+            placeholder = QListWidgetItem("No archives yet")
+            placeholder.setFlags(Qt.ItemFlag.NoItemFlags)
+            self._archives_list.addItem(placeholder)
+            return
+        for b in rows:
+            label = f"{b.skill_name} · {b.key}"
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, b.archive_path)
+            self._archives_list.addItem(item)
+
+    def _on_archive_clicked(self, item: QListWidgetItem) -> None:
+        path = item.data(Qt.ItemDataRole.UserRole)
+        if not path:
+            return
+        try:
+            with open(path, encoding="utf-8") as fh:
+                text = fh.read()
+        except OSError as exc:
+            self._viewer.setPlainText(f"Could not open archive {path}: {exc}")
+            self._viewer_stack.setCurrentWidget(self._viewer)
+            return
+        self._viewer.setHtml(_md_to_html(text, self._theme()))
+        self._viewer_stack.setCurrentWidget(self._viewer)
 
     def _on_item_clicked(self, item: QListWidgetItem) -> None:
         path = item.data(Qt.ItemDataRole.UserRole)

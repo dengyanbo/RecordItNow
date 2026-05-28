@@ -2,6 +2,121 @@
 
 All notable changes to RIN — Record It Now.
 
+## v0.5.0 — Skills (pluggable categorization)
+
+Captures no longer have to live in a flat stream. A new **skill**
+plugin system lets each user slice their corpus into buckets that
+match how they actually work — by support-ticket ID, by research
+paper, by 1:1 partner, by whatever pattern the skill author cares to
+detect. When a bucket finishes, the skill renders a Markdown archive
+that summarises the whole journey.
+
+### Bundled `support_ticket` skill (the tech-support workflow)
+
+Group captures by ticket ID across ServiceNow (`INC0012345`,
+`REQ0012345`, `SR1234567890`), Salesforce (`CASE0007890`), or
+GitHub-style (`#1234`). When any capture in the bucket mentions a
+closed phrase (`Status: Closed`, `marked as resolved`, …) or the
+bucket goes 14 days without new captures, the `BucketScheduler`
+archives it.
+
+The default archive uses the configured LLM to render a structured
+post-mortem (`Customer problem` · `Investigation timeline` · `Root
+cause` · `Resolution` · `Lessons learned`) with `cap-N` citations.
+Falls back to a chronological template offline.
+
+### How a custom skill works
+
+Drop a folder under `%LOCALAPPDATA%\RIN\skills\<name>\` containing a
+`skill.py` that exports a module-level `SKILL` instance. The registry
+discovers it, validates its `[skills.<name>]` TOML against the skill's
+optional `Config` Pydantic schema, and enables it as soon as the user
+ticks the box in Settings → Skills. Full guide: [`docs/skills.md`](docs/skills.md).
+
+### Added
+- **New module**: `src/rin/skills/`
+  - `base.py` — `Skill` ABC plus the frozen DTOs `BucketRef`,
+    `SkillContext`, `CaptureInfo`. Default `render_archive` is a safe
+    chronological dump.
+  - `registry.py` — discovers bundled skills under
+    `rin.skills.builtin.*` and user skills under
+    `paths.skills_dir()`; validates each skill's TOML against its
+    `Config` schema; returns `LoadedSkill` instances.
+  - `pipeline.py` — `classify_capture(capture_id, cfg, …)` is called
+    from `analyze_capture` after each `Analysis` row commits. UPSERTs
+    `Bucket` rows on `(skill_name, key)`, inserts `CaptureBucket`
+    junction rows, isolates per-skill exceptions.
+  - `scheduler.py` — `BucketScheduler` periodic job (default 6 h)
+    that runs `should_close` against every active bucket and calls
+    `archive_bucket` for buckets that report done.
+  - `builtin/support_ticket/` — the example skill.
+- **New storage**:
+  - `Bucket(id, skill_name, key, title, extra_json, status,
+    opened_at, closed_at, archive_path)` with `UNIQUE(skill_name,
+    key)`.
+  - `CaptureBucket(capture_id, bucket_id, created_at)` junction —
+    one capture can sit in N buckets across M skills.
+  - Migration (version 1) creates both tables idempotently.
+- **New config**: `SkillsConfig(enabled, user_skills_dir,
+  closure_check_hours)` plus `extra="allow"` so per-skill TOML
+  sections `[skills.<name>]` are preserved without the static schema
+  having to know about every installed skill.
+- **New paths**: `paths.skills_dir()` (default `%LOCALAPPDATA%\RIN\
+  skills`) and `paths.archives_dir()` (default `%LOCALAPPDATA%\RIN\
+  reports\archives`).
+- **Settings → Skills**: new tab between *Analysis* and *Reports*. Lists
+  every discovered skill as a card (display name + version chip +
+  source chip + description + Enabled toggle). "Open skills folder…"
+  link drops the user into `%LOCALAPPDATA%\RIN\skills\` via
+  `os.startfile`. Includes a privacy warning about arbitrary code
+  execution.
+- **Reports window → Archives section**: side rail gains a list below
+  the daily/weekly cards. Each entry shows `<skill_name> · <key>`;
+  clicking renders the archive Markdown in the right pane (same QSS
+  treatment as a report).
+- **Tray + boot**: `BucketScheduler` is instantiated by `TrayApp` and
+  starts/stops alongside the other schedulers. No new tray menu items.
+- **Docs**: new [`docs/skills.md`](docs/skills.md) — user guide,
+  custom-skill recipe with a minimal example, security warning, data
+  layout.
+
+### Tests
+**233 / 233 pass** (+21 since v0.4.2):
+- 8 unit tests covering `BucketRef` / `SkillContext` immutability,
+  `_default_archive` chronology, `support_ticket` detect / closure /
+  archive, registry discovery for bundled + user-drop-in skills,
+  graceful skip of broken user skill, and a custom-`Config`
+  smoke test.
+- 4 end-to-end tests with the 5-capture fixture from `plan.md`: bucket
+  linking, junction-row uniqueness, archive Markdown contents, "skill
+  off" no-op, and idempotent re-classification.
+- All 9 prior progress-widget tests still green.
+
+### Internal
+- Version bumped to `0.5.0` in `src/rin/__init__.py` +
+  `pyproject.toml`.
+- `analysis/summarizer.py` calls `classify_capture` after each
+  successful `Analysis`; failures are logged and isolated so one bad
+  skill cannot break the batch.
+- `ui/tray.py` constructs + manages a `BucketScheduler`.
+- `storage/__init__.py` re-exports `Bucket` and `CaptureBucket` for
+  callers that want direct ORM access.
+
+### Decisions of record
+- **Multi-bucket per capture** — a single capture can match multiple
+  skills *and* multiple buckets within a single skill (no first-match
+  cap).
+- **No skill enabled by default** — backwards-compat with v0.4. Users
+  opt in via the Settings tab.
+- **Closure detection = regex + inactivity timeout by default** —
+  LLM-driven closure is opt-in per skill (`use_llm_for_closure`).
+- **Archive rendering = LLM by default** — one call per ticket close
+  is worth the artefact quality. Falls back to template offline.
+- **Drop-in skills, not pip packages** — pip-installable skills
+  (`rin-skill-*`) can come later; file-drop is the simplest contract.
+
+---
+
 ## v0.4.2 — Spinners + busy overlays (no more freezes)
 
 Long-running operations no longer block the Qt main thread. Every

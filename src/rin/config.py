@@ -90,6 +90,55 @@ class UIConfig(BaseModel):
     density: Literal["compact", "comfortable"] = "comfortable"
 
 
+class SkillsConfig(BaseModel):
+    """Skill plugin system (v0.5.0+).
+
+    Each skill has a stable ``name`` and registers itself with
+    :mod:`rin.skills.registry`. ``enabled`` lists the names that should
+    be active; everything else is discovered but inert.
+
+    Per-skill configuration is written as nested TOML tables, e.g.::
+
+        [skills]
+        enabled = ["support_ticket"]
+        closure_check_hours = 6
+
+        [skills.support_ticket]
+        id_patterns = ["INC\\d{7}", "REQ\\d{7}"]
+        auto_archive_after_days = 14
+
+    The ``[skills.support_ticket]`` table is collected into
+    :attr:`model_extra` (Pydantic v2 ``extra="allow"``) so the static
+    schema does not have to know about every installed skill at import
+    time. The skill registry pulls each section out via
+    :meth:`config_for_skill` and validates it against the skill's own
+    ``Config`` Pydantic schema.
+    """
+
+    enabled: list[str] = Field(default_factory=list)
+    # Where user-installed skills live. None = use paths.skills_dir().
+    user_skills_dir: str | None = None
+    # How often :class:`~rin.skills.scheduler.BucketScheduler` checks
+    # active buckets for closure (hours). Lower = faster archive but
+    # slightly more I/O. 6h is a sane balance.
+    closure_check_hours: int = 6
+
+    model_config = {"extra": "allow"}
+
+    def config_for_skill(self, name: str) -> dict | None:
+        """Return the raw TOML dict for ``[skills.<name>]`` or ``None``.
+
+        Used by :func:`rin.skills.registry.discover` to seed each
+        :class:`~rin.skills.base.Skill` with its validated config.
+        """
+
+        extras = self.model_extra or {}
+        section = extras.get(name)
+        if isinstance(section, dict):
+            return section
+        return None
+
+
 class RinConfig(BaseModel):
     """Root configuration object persisted to ``config.toml``."""
 
@@ -103,6 +152,7 @@ class RinConfig(BaseModel):
     storage: StorageConfig = Field(default_factory=StorageConfig)
     capture: CaptureConfig = Field(default_factory=CaptureConfig)
     ui: UIConfig = Field(default_factory=UIConfig)
+    skills: SkillsConfig = Field(default_factory=SkillsConfig)
 
     model_config = {"extra": "ignore"}
 

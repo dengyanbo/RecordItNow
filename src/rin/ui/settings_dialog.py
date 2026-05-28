@@ -82,6 +82,7 @@ class SettingsDialog(QDialog):
         ("Trigger",       "keyboard",  "What button captures or starts a recording."),
         ("Working hours", "clock",     "When background analysis is allowed to run."),
         ("Analysis",      "lightbulb", "Choose your LLM provider and analysis cadence."),
+        ("Skills",        "lightbulb", "Plugins that categorize captures into buckets."),
         ("Reports",       "document",  "How and when daily/weekly summaries are produced."),
         ("Capture",       "mic",       "Audio device and recording details."),
         ("Storage",       "folder",    "Disk retention for captures and summaries."),
@@ -125,6 +126,7 @@ class SettingsDialog(QDialog):
         self._build_trigger_tab()
         self._build_working_hours_tab()
         self._build_llm_tab()
+        self._build_skills_tab()
         self._build_reports_tab()
         self._build_capture_tab()
         self._build_storage_tab()
@@ -404,6 +406,138 @@ class SettingsDialog(QDialog):
         form.addRow(self._require_idle)
 
         self._add_page(page)
+
+    def _build_skills_tab(self) -> None:
+        """List discovered skills + per-skill enable toggle + Configure."""
+
+        page = QWidget()
+        col = QVBoxLayout(page)
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(12)
+
+        self._skill_cards_layout = QVBoxLayout()
+        self._skill_cards_layout.setSpacing(10)
+        col.addLayout(self._skill_cards_layout)
+
+        actions = QHBoxLayout()
+        actions.setSpacing(8)
+        open_folder = QPushButton("Open skills folder…")
+        open_folder.setProperty("flat", True)
+        open_folder.clicked.connect(self._open_skills_folder)
+        actions.addStretch()
+        actions.addWidget(open_folder)
+        col.addLayout(actions)
+
+        warn = QLabel(
+            "Skills run inside RIN and see every capture's text. Only "
+            "install skills from sources you trust."
+        )
+        warn.setProperty("role", "field-hint")
+        warn.setWordWrap(True)
+        col.addWidget(warn)
+
+        self._populate_skill_cards()
+        self._add_page(page)
+
+    def _populate_skill_cards(self) -> None:
+        """Rebuild the skill list from rin.skills.registry.discover()."""
+
+        # Clear existing widgets in the layout (rebuild on every load).
+        while self._skill_cards_layout.count():
+            item = self._skill_cards_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+
+        try:
+            from ..skills.registry import discover
+            loaded = discover(self._config)
+        except Exception as exc:
+            log.warning(f"skill discover failed: {exc}")
+            loaded = []
+
+        enabled = set(self._config.skills.enabled or [])
+        self._skill_toggles: dict[str, QCheckBox] = {}
+
+        if not loaded:
+            empty = QLabel(
+                "No skills discovered. Drop a folder with `skill.py` into the "
+                "skills folder, then reopen Settings."
+            )
+            empty.setProperty("role", "field-hint")
+            empty.setWordWrap(True)
+            self._skill_cards_layout.addWidget(empty)
+            return
+
+        for ls in loaded:
+            self._skill_cards_layout.addWidget(self._skill_card(ls, enabled))
+
+    def _skill_card(self, loaded, enabled: set[str]) -> QWidget:
+        skill = loaded.skill
+        card = QFrame()
+        card.setObjectName("card")
+        outer = QVBoxLayout(card)
+        outer.setContentsMargins(14, 12, 14, 12)
+        outer.setSpacing(6)
+
+        top = QHBoxLayout()
+        top.setSpacing(8)
+        name_lbl = QLabel(skill.display_name)
+        name_lbl.setProperty("heading", "h2")
+        version_chip = QLabel(f"v{skill.version}")
+        version_chip.setProperty("role", "chip")
+        version_chip.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        source_chip = QLabel(loaded.source.title())
+        source_chip.setProperty("role", "chip")
+        source_chip.setProperty(
+            "accent", "true" if loaded.source == "builtin" else "false"
+        )
+        source_chip.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        top.addWidget(name_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
+        top.addSpacing(4)
+        top.addWidget(version_chip, 0, Qt.AlignmentFlag.AlignVCenter)
+        top.addWidget(source_chip, 0, Qt.AlignmentFlag.AlignVCenter)
+        top.addStretch()
+        toggle = QCheckBox("Enabled")
+        toggle.setChecked(skill.name in enabled)
+        toggle.stateChanged.connect(
+            lambda _state, name=skill.name: self._on_skill_toggled(name)
+        )
+        top.addWidget(toggle, 0, Qt.AlignmentFlag.AlignVCenter)
+        self._skill_toggles[skill.name] = toggle
+        outer.addLayout(top)
+
+        if skill.description:
+            desc = QLabel(skill.description)
+            desc.setProperty("role", "field-hint")
+            desc.setWordWrap(True)
+            outer.addWidget(desc)
+
+        return card
+
+    def _on_skill_toggled(self, skill_name: str) -> None:
+        enabled = list(self._config.skills.enabled or [])
+        if self._skill_toggles[skill_name].isChecked():
+            if skill_name not in enabled:
+                enabled.append(skill_name)
+        else:
+            enabled = [n for n in enabled if n != skill_name]
+        self._config.skills.enabled = enabled
+
+    def _open_skills_folder(self) -> None:
+        import os
+
+        try:
+            from .. import paths
+
+            path = paths.skills_dir()
+        except Exception as exc:
+            log.warning(f"Cannot open skills folder: {exc}")
+            return
+        try:
+            os.startfile(str(path))  # type: ignore[attr-defined]
+        except (AttributeError, OSError) as exc:
+            log.warning(f"os.startfile failed for {path}: {exc}")
 
     def _build_reports_tab(self) -> None:
         page = QWidget()

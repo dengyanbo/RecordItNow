@@ -9,6 +9,7 @@ Schema summary
 * ``transcripts``     — Whisper output for video captures.
 * ``reports``         — generated daily / weekly markdown rollups.
 * ``tags`` + ``capture_tags`` — user / auto tagging (many-to-many).
+* ``buckets`` + ``capture_buckets`` — skill-driven categorization (v0.5+).
 * ``key_value``       — runtime state the user never directly edits.
 """
 from __future__ import annotations
@@ -144,6 +145,46 @@ class CaptureTag(Base):
     tag_id: Mapped[int] = mapped_column(
         ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True
     )
+
+
+class Bucket(Base):
+    """A skill-driven categorization unit (v0.5+).
+
+    A bucket groups N captures under a single key (e.g. a support ticket
+    ID) that a :class:`~rin.skills.base.Skill` extracted via its
+    :meth:`detect` method. When the skill decides the bucket is "done"
+    (resolved, archived, etc.) the scheduler runs the skill's
+    :meth:`render_archive`, writes the resulting Markdown to
+    ``reports/archives/<skill>/<key>.md``, and flips ``status`` to
+    ``archived`` with ``closed_at`` + ``archive_path`` populated.
+    """
+
+    __tablename__ = "buckets"
+    __table_args__ = (UniqueConstraint("skill_name", "key"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    skill_name: Mapped[str] = mapped_column(String(64), index=True)
+    key: Mapped[str] = mapped_column(String(256), index=True)
+    title: Mapped[str] = mapped_column(Text)
+    extra_json: Mapped[str | None] = mapped_column(Text, default=None)
+    status: Mapped[str] = mapped_column(String(16), default="active")  # "active" | "archived"
+    opened_at: Mapped[datetime] = mapped_column(default=func.now(), index=True)
+    closed_at: Mapped[datetime | None] = mapped_column(default=None)
+    archive_path: Mapped[str | None] = mapped_column(Text, default=None)
+
+
+class CaptureBucket(Base):
+    """Junction table — one capture can belong to many buckets."""
+
+    __tablename__ = "capture_buckets"
+
+    capture_id: Mapped[int] = mapped_column(
+        ForeignKey("captures.id", ondelete="CASCADE"), primary_key=True
+    )
+    bucket_id: Mapped[int] = mapped_column(
+        ForeignKey("buckets.id", ondelete="CASCADE"), primary_key=True
+    )
+    created_at: Mapped[datetime] = mapped_column(default=func.now())
 
 
 class KeyValue(Base):

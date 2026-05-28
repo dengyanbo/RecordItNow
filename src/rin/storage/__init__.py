@@ -8,7 +8,9 @@ from . import db, files, retention, vector_store
 from .db import init_db, session
 from .models import (
     Analysis,
+    Bucket,
     Capture,
+    CaptureBucket,
     CaptureFile,
     KeyValue,
     Monitor,
@@ -19,7 +21,9 @@ from .models import (
 
 __all__ = [
     "Analysis",
+    "Bucket",
     "Capture",
+    "CaptureBucket",
     "CaptureFile",
     "KeyValue",
     "Monitor",
