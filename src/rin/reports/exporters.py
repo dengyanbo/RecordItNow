@@ -12,13 +12,30 @@ if TYPE_CHECKING:
 _PDF_APP = None
 
 
-def export_pdf(markdown_text: str, dst: Path, theme: Theme) -> None:
+def _resolve_theme(theme: Theme | None) -> Theme:
+    """Default to the LIGHT theme when the caller passes ``None``.
+
+    Callers that don't have a live :class:`Theme` instance (e.g. CLI
+    exports, third-party scripts, tests) should not have to construct
+    one. Returning LIGHT keeps the rendered output legible without
+    requiring a Qt application context.
+    """
+
+    if theme is not None:
+        return theme
+    from ..ui.theme import LIGHT
+
+    return LIGHT
+
+
+def export_pdf(markdown_text: str, dst: Path, theme: Theme | None = None) -> None:
     from PySide6.QtGui import QTextDocument
     from PySide6.QtPrintSupport import QPrinter
     from PySide6.QtWidgets import QApplication
 
     global _PDF_APP
 
+    theme = _resolve_theme(theme)
     if QApplication.instance() is None:
         _PDF_APP = QApplication([])
     dst.parent.mkdir(parents=True, exist_ok=True)
@@ -32,12 +49,19 @@ def export_pdf(markdown_text: str, dst: Path, theme: Theme) -> None:
     document.print_(printer)
 
 
-def export_html(markdown_text: str, dst: Path, theme: Theme) -> None:
+def export_html(markdown_text: str, dst: Path, theme: Theme | None = None) -> None:
+    theme = _resolve_theme(theme)
     dst.parent.mkdir(parents=True, exist_ok=True)
     dst.write_text(render_report_html(markdown_text, theme, title=dst.stem), encoding="utf-8")
 
 
-def render_report_html(markdown_text: str, theme: Theme, *, title: str = "RIN Report") -> str:
+def render_report_html(
+    markdown_text: str,
+    theme: Theme | None = None,
+    *,
+    title: str = "RIN Report",
+) -> str:
+    theme = _resolve_theme(theme)
     body = _markdown_body_html(markdown_text)
     return f"""<!DOCTYPE html>
 <html lang=\"en\">
