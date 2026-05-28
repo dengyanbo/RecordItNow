@@ -21,6 +21,7 @@ from datetime import datetime
 from pathlib import Path
 
 from ..config import CaptureConfig
+from ..utils.encryption import CaptureCipher
 from ..utils.logging import get_logger
 from ..utils.thumbnail import make_thumbnail
 from .monitors import MonitorInfo
@@ -197,6 +198,8 @@ class VideoRecorder:
         audio_device: str | None = None,
         binary: str = "ffmpeg",
         popen_factory=None,
+        encrypt_at_rest: bool = False,
+        cipher: CaptureCipher | None = None,
     ) -> None:
         self.monitors = monitors
         self.folder = folder
@@ -204,6 +207,8 @@ class VideoRecorder:
         self.audio_device = audio_device
         self.binary = binary
         self._popen_factory = popen_factory or subprocess.Popen
+        self._encrypt_at_rest = encrypt_at_rest
+        self._cipher = cipher
         self._procs: list[RecorderProcess] = []
         self._started_at: datetime | None = None
 
@@ -251,6 +256,13 @@ class VideoRecorder:
     def stop(self, *, timeout_seconds: float = 5.0) -> list[Path]:
         """Stop all subprocesses, returning the list of output files."""
 
+        effective_cipher = self._cipher or (CaptureCipher() if self._encrypt_at_rest else None)
+        should_encrypt = (
+            self._encrypt_at_rest
+            and effective_cipher is not None
+            and effective_cipher.is_available()
+        )
+
         outputs: list[Path] = []
         for rp in self._procs:
             stdin = rp.process.stdin
@@ -277,7 +289,14 @@ class VideoRecorder:
                     rp.process.wait(timeout=2.0)
                 except subprocess.TimeoutExpired:
                     rp.process.kill()
-            outputs.append(rp.output)
-            _write_video_thumbnail(rp.output, binary=self.binary)
+            final_output = rp.output
+            if should_encrypt and rp.output.exists():
+                assert effective_cipher is not None
+                final_output = rp.output.with_name(f"{rp.output.name}.enc")
+                effective_cipher.encrypt_file(rp.output, final_output)
+                rp.output.unlink()
+            else:
+                _write_video_thumbnail(rp.output, binary=self.binary)
+            outputs.append(final_output)
         self._procs.clear()
         return outputs

@@ -68,6 +68,7 @@ class TelemetryConfig(BaseModel):
 class ReportsConfig(BaseModel):
     frequency: Literal["daily", "weekly", "off"] = "daily"
     deliver_via_notification: bool = True
+    calendar_provider: Literal["none", "outlook", "google"] = "none"
     # Surface this in Settings → Reports from ui/settings_dialog.py (owned by Agent D).
     obsidian_vault_path: str | None = None
 
@@ -81,6 +82,7 @@ class StorageConfig(BaseModel):
 class PrivacyConfig(BaseModel):
     app_blacklist: list[str] = Field(default_factory=list)
     paused_until_iso: str | None = None
+    encrypt_at_rest: bool = False
 
 
 class CaptureConfig(BaseModel):

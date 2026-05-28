@@ -3,8 +3,10 @@
     Install RIN — Record It Now on Windows.
 
 .DESCRIPTION
-    End-to-end installer. Provisions Python, uv, FFmpeg, GitHub Copilot CLI,
-    and all Python dependencies, then sets up a Start Menu shortcut.
+    End-to-end installer. By default it provisions Python, uv, FFmpeg,
+    GitHub Copilot CLI, and all Python dependencies, then sets up a Start
+    Menu shortcut. Use -FromExe to extract a pre-built standalone bundle
+    instead.
 
     Designed to be run from the unpacked release zip:
         1. Right-click `install.ps1` -> Run with PowerShell, OR
@@ -28,6 +30,11 @@
     Skip Python / FFmpeg / Copilot CLI installation; assume they're
     already on PATH. Useful in CI or for advanced users.
 
+.PARAMETER FromExe
+    Install from a pre-built `RIN-v*-windows-exe.zip` instead of creating
+    a Python virtual environment. The zip is discovered next to this script
+    or in `..\dist\`.
+
 .PARAMETER Force
     Overwrite an existing installation without prompting.
 
@@ -42,7 +49,8 @@ param(
     [switch]$Prefetch,
     [switch]$Autostart,
     [switch]$SkipDeps,
-    [switch]$Force
+    [switch]$Force,
+    [switch]$FromExe
 )
 
 $ErrorActionPreference = 'Stop'
@@ -58,6 +66,18 @@ function Get-RinVersion {
         $line = (Select-String -Path $initPath -Pattern '__version__\s*=' -SimpleMatch:$false | Select-Object -First 1)
         if ($line) { return ($line.Line -replace '.*"([^"]+)".*', '$1') }
     }
+    foreach ($pattern in @(
+        (Join-Path $PSScriptRoot 'RIN-v*-windows-exe.zip'),
+        (Join-Path $PSScriptRoot '..\RIN-v*-windows-exe.zip'),
+        (Join-Path $PSScriptRoot '..\dist\RIN-v*-windows-exe.zip')
+    )) {
+        $zip = Get-ChildItem -Path $pattern -File -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+        if ($zip -and $zip.BaseName -match '^RIN-v(.+)-windows-exe$') {
+            return $Matches[1]
+        }
+    }
     return '0.0.0'
 }
 
@@ -65,6 +85,22 @@ function Write-Step    { param([string]$Msg) Write-Host ""; Write-Host ">>> $Msg
 function Write-OK      { param([string]$Msg) Write-Host "    [OK] $Msg" -ForegroundColor Green }
 function Write-Warn    { param([string]$Msg) Write-Host "    [!!] $Msg" -ForegroundColor Yellow }
 function Fail          { param([string]$Msg) Write-Host "    [XX] $Msg" -ForegroundColor Red; exit 1 }
+
+function Find-ExeBundleZip {
+    foreach ($pattern in @(
+        (Join-Path $PSScriptRoot 'RIN-v*-windows-exe.zip'),
+        (Join-Path $PSScriptRoot '..\RIN-v*-windows-exe.zip'),
+        (Join-Path $PSScriptRoot '..\dist\RIN-v*-windows-exe.zip')
+    )) {
+        $match = Get-ChildItem -Path $pattern -File -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+        if ($match) {
+            return $match.FullName
+        }
+    }
+    return $null
+}
 
 function Test-Command {
     param([Parameter(Mandatory)][string]$Name)
@@ -159,6 +195,69 @@ if (Test-Path $InstallDir) {
 }
 if ($PSCmdlet.ShouldProcess($InstallDir, 'create install directory')) {
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+}
+
+if ($FromExe) {
+    Write-Step "Installing pre-built exe bundle"
+    if ($Prefetch) {
+        Write-Warn "-Prefetch is ignored for pre-built exe installs. RIN will download models on first use."
+    }
+    $exeZip = Find-ExeBundleZip
+    if (-not $exeZip) {
+        Fail "Cannot find RIN-v*-windows-exe.zip next to install.ps1 or under ..\dist\."
+    }
+    Write-Host "    Bundle: $exeZip"
+    if ($PSCmdlet.ShouldProcess($InstallDir, 'extract pre-built exe bundle')) {
+        Expand-Archive -Path $exeZip -DestinationPath $InstallDir -Force
+    }
+    $exePath = Join-Path $InstallDir 'RIN.exe'
+    if (-not (Test-Path $exePath)) {
+        Fail "Bundle extract succeeded but $exePath was not found."
+    }
+    Write-OK "Standalone bundle extracted to $InstallDir"
+    Write-Warn "FFmpeg is not bundled; install it separately if you want MP4 recording."
+    Write-Warn "The default LLM provider still expects GitHub Copilot CLI unless you switch providers in Settings."
+
+    Write-Step "Start Menu shortcut"
+    $startMenu = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\RIN.lnk'
+    if ($PSCmdlet.ShouldProcess($startMenu, 'create shortcut')) {
+        try {
+            $shell = New-Object -ComObject WScript.Shell
+            $lnk = $shell.CreateShortcut($startMenu)
+            $lnk.TargetPath = $exePath
+            $lnk.WorkingDirectory = $InstallDir
+            $lnk.IconLocation = $exePath
+            $lnk.Description  = 'RIN — Record It Now'
+            $lnk.Save()
+            Write-OK "Shortcut: $startMenu"
+        } catch {
+            Write-Warn "Failed to create Start Menu shortcut: $_"
+        }
+    }
+
+    if ($Autostart) {
+        Write-Step "Registering autostart on login"
+        $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+        if (-not (Test-Path $runKey)) {
+            New-Item -Path $runKey -Force | Out-Null
+        }
+        Set-ItemProperty -Path $runKey -Name 'RIN' -Value ('"{0}"' -f $exePath)
+        Write-OK "Autostart enabled (will start RIN.exe with Windows)."
+    }
+
+    Write-Step "Installation complete!"
+    Write-Host ""
+    Write-Host "  Launch RIN:"
+    Write-Host "    - From Start Menu: type 'RIN' and press Enter"
+    Write-Host "    - From CLI:        & '$exePath'"
+    Write-Host ""
+    Write-Host "  Data directory:  $(Join-Path $env:LOCALAPPDATA 'RIN')"
+    Write-Host "  Uninstall:       Remove $InstallDir and $(Join-Path $env:LOCALAPPDATA 'RIN')"
+    Write-Host ""
+    Write-Host "  Quick check:"
+    Write-Host "    & '$exePath' --smoke"
+    Write-Host ""
+    return
 }
 
 # ----------------------------------------------------------------------

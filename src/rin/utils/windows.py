@@ -1,19 +1,6 @@
-"""Misc Windows-specific helpers."""
+"""Backwards-compatible re-exports for Windows helpers."""
 from __future__ import annotations
 
-import sys
+from ._platform_windows import app_data_dir, is_windows
 
-
-def is_windows() -> bool:
-    return sys.platform == "win32"
-
-
-def app_data_dir() -> str:
-    """Return ``%LOCALAPPDATA%`` on Windows; ``~/.local/share`` on other OSes."""
-
-    import os
-    from pathlib import Path
-
-    if is_windows():
-        return os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local"))
-    return str(Path.home() / ".local" / "share")
+__all__ = ["app_data_dir", "is_windows"]

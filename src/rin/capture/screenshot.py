@@ -17,6 +17,7 @@ from typing import Any
 from ..storage import session
 from ..storage.files import new_session_dir
 from ..storage.models import Capture, CaptureFile
+from ..utils.encryption import CaptureCipher
 from ..utils.logging import get_logger
 from ..utils.thumbnail import make_thumbnail
 from .monitors import MonitorInfo, enumerate_monitors
@@ -28,6 +29,8 @@ def capture_screenshot(
     *,
     monitors: list[MonitorInfo] | None = None,
     grabber_factory: Any | None = None,
+    encrypt_at_rest: bool = False,
+    cipher: CaptureCipher | None = None,
 ) -> int:
     """Capture every monitor to PNG. Returns the new ``Capture.id``.
 
@@ -49,6 +52,13 @@ def capture_screenshot(
 
         grabber_factory = mss.mss
 
+    effective_cipher = cipher or (CaptureCipher() if encrypt_at_rest else None)
+    should_encrypt = (
+        encrypt_at_rest
+        and effective_cipher is not None
+        and effective_cipher.is_available()
+    )
+
     paths: list[tuple[MonitorInfo, Path, int]] = []
     capture_thumbnail: Path | None = None
     with grabber_factory() as sct:
@@ -62,10 +72,17 @@ def capture_screenshot(
             shot = sct.grab(region)
             out = folder / f"monitor-{info.index}.png"
             _save_png(shot, out)
-            thumbnail = _write_thumbnail(out)
-            if capture_thumbnail is None and thumbnail is not None:
-                capture_thumbnail = thumbnail
-            paths.append((info, out, out.stat().st_size))
+            final_path = out
+            if should_encrypt:
+                assert effective_cipher is not None
+                final_path = out.with_name(f"{out.name}.enc")
+                effective_cipher.encrypt_file(out, final_path)
+                out.unlink()
+            else:
+                thumbnail = _write_thumbnail(out)
+                if capture_thumbnail is None and thumbnail is not None:
+                    capture_thumbnail = thumbnail
+            paths.append((info, final_path, final_path.stat().st_size))
 
     total_bytes = sum(size for _, _, size in paths)
     ended_at = datetime.now()

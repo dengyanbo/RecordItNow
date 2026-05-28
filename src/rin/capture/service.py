@@ -18,6 +18,7 @@ from ..config import RinConfig
 from ..storage import session
 from ..storage.files import has_enough_free_space, new_session_dir
 from ..storage.models import Capture, CaptureFile
+from ..utils.encryption import CaptureCipher
 from ..utils.logging import get_logger
 from .audio import record_short_clip
 from .monitors import MonitorInfo, enumerate_monitors, refresh_monitor_records
@@ -38,6 +39,8 @@ class CaptureService:
         self._recording_folder: Path | None = None
         self._recording_started_at: datetime | None = None
         self._monitors: list[MonitorInfo] | None = None
+        self._cipher: CaptureCipher | None = None
+        self._encrypt_unavailable_logged = False
 
     # --- lifecycle ----------------------------------------------------------------
 
@@ -66,8 +69,13 @@ class CaptureService:
             if not is_capture_allowed(self.config.privacy.app_blacklist):
                 log.info("Skipping screenshot: foreground window matched privacy blacklist")
                 return None
+            cipher = self._capture_cipher() if self.config.privacy.encrypt_at_rest else None
             try:
-                cap_id = capture_screenshot(monitors=self._monitors)
+                cap_id = capture_screenshot(
+                    monitors=self._monitors,
+                    encrypt_at_rest=cipher is not None,
+                    cipher=cipher,
+                )
             except Exception as exc:
                 log.error(f"Screenshot failed: {exc}")
                 return None
@@ -103,6 +111,7 @@ class CaptureService:
             # Fallback to the configured audio device when the caller didn't pass one.
             effective_audio = audio_device or self.config.capture.audio_device
 
+            cipher = self._capture_cipher() if self.config.privacy.encrypt_at_rest else None
             try:
                 if recorder_factory is None:
                     self._recorder = VideoRecorder(
@@ -110,6 +119,8 @@ class CaptureService:
                         folder=self._recording_folder,
                         capture_cfg=self.config.capture,
                         audio_device=effective_audio,
+                        encrypt_at_rest=cipher is not None,
+                        cipher=cipher,
                     )
                 else:
                     self._recorder = recorder_factory(
@@ -140,6 +151,7 @@ class CaptureService:
             self._recording_folder = None
             self._recording_started_at = None
 
+        outputs = self._encrypt_recording_outputs(outputs)
         return self._persist_recording(outputs, folder, started_at)
 
     # --- helpers ------------------------------------------------------------------
@@ -190,10 +202,50 @@ class CaptureService:
 
     @staticmethod
     def _monitor_index_from_path(path: Path, monitors: list[MonitorInfo]) -> int:
+        stem = path.stem
+        if path.suffix == ".enc":
+            stem = Path(stem).stem
         for m in monitors:
-            if path.stem.endswith(f"-{m.index}"):
+            if stem.endswith(f"-{m.index}"):
                 return m.index
         return 0
+
+    def _capture_cipher(self) -> CaptureCipher | None:
+        if self._cipher is None:
+            self._cipher = CaptureCipher()
+        if self._cipher.is_available():
+            return self._cipher
+        if not self._encrypt_unavailable_logged:
+            log.warning(
+                "Encrypt-at-rest requested but Windows DPAPI or pywin32 is unavailable; captures will remain plaintext"
+            )
+            self._encrypt_unavailable_logged = True
+        return None
+
+    def _encrypt_recording_outputs(self, outputs: list[Path]) -> list[Path]:
+        if not self.config.privacy.encrypt_at_rest:
+            return outputs
+        encrypted_outputs: list[Path] = []
+        for out in outputs:
+            if out.suffix == ".enc":
+                encrypted_outputs.append(out)
+                continue
+            thumb = out.with_suffix(".jpg")
+            if thumb.exists():
+                thumb.unlink()
+            encrypted_outputs.append(self._encrypt_capture_path(out))
+        return encrypted_outputs
+
+    def _encrypt_capture_path(self, path: Path) -> Path:
+        if path.suffix == ".enc":
+            return path
+        cipher = self._capture_cipher()
+        if cipher is None:
+            return path
+        encrypted = path.with_name(f"{path.name}.enc")
+        cipher.encrypt_file(path, encrypted)
+        path.unlink()
+        return encrypted
 
     def _active_pause_until(self) -> datetime | None:
         paused_until_iso = self.config.privacy.paused_until_iso
@@ -217,11 +269,13 @@ class CaptureService:
         if folder is None:
             return
         try:
-            record_short_clip(
+            note_path = record_short_clip(
                 cfg.quick_note_seconds,
                 cfg.quick_note_audio_device,
                 folder / "quick_note.wav",
             )
+            if self.config.privacy.encrypt_at_rest:
+                self._encrypt_capture_path(note_path)
         except Exception as exc:
             log.warning(f"Quick-note recording failed for capture_id={capture_id}: {exc}")
 

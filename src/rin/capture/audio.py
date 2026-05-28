@@ -17,6 +17,7 @@ import wave
 from pathlib import Path
 from typing import Any
 
+from ..utils import _platform_windows, platform_compat
 from ..utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -45,75 +46,15 @@ def list_audio_devices() -> list[dict[str, Any]]:
 
 
 def list_dshow_audio_devices(binary: str = "ffmpeg", runner=None) -> list[str]:
-    """Enumerate DirectShow **audio** input device names available to ffmpeg.
+    """Return the platform audio-device list used by the recording settings UI."""
 
-    Runs ``ffmpeg -list_devices true -f dshow -i dummy`` and parses the device
-    names out of the (always non-zero) stderr listing. Returns an empty list if
-    ffmpeg is missing or the call fails.
-
-    These names are what the recorder passes to ffmpeg as ``-f dshow -i
-    audio="<name>"`` — pick one from this list in the settings UI.
-    """
-
-    import shutil
-    import subprocess
-
-    if shutil.which(binary) is None and runner is None:
-        return []
-
-    runner = runner or subprocess.run
-    try:
-        proc = runner(
-            [binary, "-hide_banner", "-list_devices", "true", "-f", "dshow", "-i", "dummy"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=10,
-            check=False,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
-        log.warning(f"ffmpeg device enumeration failed: {exc}")
-        return []
-
-    return _parse_dshow_audio_devices(proc.stderr or "")
+    if not platform_compat.is_windows():
+        return platform_compat.list_audio_devices()
+    return platform_compat.list_audio_devices(binary=binary, runner=runner)
 
 
 def _parse_dshow_audio_devices(stderr: str) -> list[str]:
-    """Parse ffmpeg ``-list_devices`` stderr into a list of audio device names.
-
-    Handles both the classic ``"<name>" (audio)`` format and the older
-    section-header style where audio devices appear after a
-    ``"DirectShow audio devices"`` header.
-    """
-
-    import re
-
-    devices: list[str] = []
-    seen: set[str] = set()
-    in_audio_section = False
-    name_re = re.compile(r'"([^"]+)"\s*(?:\(([^)]+)\))?')
-    for raw_line in stderr.splitlines():
-        line = raw_line.strip()
-        lower = line.lower()
-        if "directshow audio devices" in lower:
-            in_audio_section = True
-            continue
-        if "directshow video devices" in lower:
-            in_audio_section = False
-            continue
-        if "alternative name" in lower:
-            continue
-        match = name_re.search(line)
-        if not match:
-            continue
-        name = match.group(1)
-        kind = (match.group(2) or "").lower()
-        is_audio = kind == "audio" or (in_audio_section and kind != "video")
-        if is_audio and name not in seen:
-            seen.add(name)
-            devices.append(name)
-    return devices
+    return _platform_windows._parse_dshow_audio_devices(stderr)
 
 
 def _write_pcm16_wav(out_path: Path, data, *, samplerate: int, channels: int) -> None:

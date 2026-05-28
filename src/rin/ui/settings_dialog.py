@@ -344,6 +344,7 @@ class SettingsDialog(QDialog):
 
         c.reports.frequency = self._report_combo.currentText()
         c.reports.deliver_via_notification = self._notify_check.isChecked()
+        c.reports.calendar_provider = self._calendar_provider_combo.currentText()
         c.reports.obsidian_vault_path = self._obsidian_vault_path.text().strip() or None
 
         c.storage.raw_retention_days = self._retention_spin.value()
@@ -362,6 +363,7 @@ class SettingsDialog(QDialog):
             for line in self._privacy_blacklist.toPlainText().splitlines()
             if line.strip()
         ]
+        c.privacy.encrypt_at_rest = self._privacy_encrypt_at_rest.isChecked()
 
         for mode, rb in self._theme_radios.items():
             if rb.isChecked():
@@ -773,6 +775,31 @@ class SettingsDialog(QDialog):
 
         self._section_spacer(form)
 
+        self._calendar_provider_combo = QComboBox()
+        self._calendar_provider_combo.addItems(["none", "outlook", "google"])
+        self._fixed(self._calendar_provider_combo, _W_PICKER)
+        self._calendar_provider_combo.currentTextChanged.connect(self._sync_calendar_auth_state)
+        self._calendar_sign_in_button = QPushButton("Sign in…")
+        self._calendar_sign_in_button.clicked.connect(self._start_calendar_sign_in)
+        self._calendar_sign_in_spinner = Spinner(size=18, accent=self._nav_color_selected)
+        self._calendar_sign_in_spinner.hide()
+        self._calendar_sign_in_busy = False
+        calendar_row = QHBoxLayout()
+        calendar_row.setContentsMargins(0, 0, 0, 0)
+        calendar_row.setSpacing(8)
+        calendar_row.addWidget(self._calendar_provider_combo)
+        calendar_row.addWidget(self._calendar_sign_in_button, 0)
+        calendar_row.addWidget(self._calendar_sign_in_spinner, 0, Qt.AlignmentFlag.AlignVCenter)
+        calendar_row.addStretch()
+        form.addRow(self._label("Calendar provider"), _wrap(calendar_row))
+        form.addRow(self._hint(
+            "Optional read-only Outlook or Google Calendar context for reports. "
+            "OAuth tokens stay in your OS keyring."
+        ))
+        self._sync_calendar_auth_state()
+
+        self._section_spacer(form)
+
         self._obsidian_vault_path = QLineEdit()
         self._obsidian_vault_path.setPlaceholderText("Optional Obsidian vault folder")
         self._fixed(self._obsidian_vault_path, _W_URL)
@@ -791,6 +818,92 @@ class SettingsDialog(QDialog):
 
         self._add_page(page)
 
+    def _sync_calendar_auth_state(self, _provider_name: str | None = None) -> None:
+        enabled = self._calendar_provider_combo.currentText() != "none"
+        self._calendar_sign_in_button.setEnabled(enabled and not self._calendar_sign_in_busy)
+        self._calendar_provider_combo.setEnabled(not self._calendar_sign_in_busy)
+        if self._calendar_sign_in_busy:
+            self._calendar_sign_in_spinner.start()
+            self._calendar_sign_in_spinner.show()
+        else:
+            self._calendar_sign_in_spinner.stop()
+            self._calendar_sign_in_spinner.hide()
+
+    def _start_calendar_sign_in(self) -> None:
+        provider_name = self._calendar_provider_combo.currentText()
+        if provider_name == "none":
+            return
+        from ..reports.integrations.factory import make_calendar_provider
+
+        cfg = self._config.model_copy(deep=True)
+        cfg.reports.calendar_provider = provider_name
+        provider = make_calendar_provider(cfg)
+        if provider is None:
+            QMessageBox.warning(
+                self,
+                "Calendar sign-in unavailable",
+                "Install RIN with the calendar optional dependencies to enable this provider.",
+            )
+            return
+        authenticate = getattr(provider, "authenticate", None)
+        if not callable(authenticate):
+            QMessageBox.warning(
+                self,
+                "Calendar sign-in unavailable",
+                "The selected provider does not expose an OAuth sign-in flow.",
+            )
+            return
+
+        class _CalendarSignInSignals(QObject):
+            done = Signal(str)
+            failed = Signal(str)
+
+        class _CalendarSignInTask(QRunnable):
+            def __init__(self, callback, provider_label: str, signals: _CalendarSignInSignals) -> None:
+                super().__init__()
+                self._callback = callback
+                self._provider_label = provider_label
+                self._signals = signals
+
+            def run(self) -> None:  # pragma: no cover - thread plumbing
+                try:
+                    self._callback()
+                    self._signals.done.emit(self._provider_label)
+                except Exception as exc:
+                    self._signals.failed.emit(str(exc))
+
+        self._calendar_sign_in_busy = True
+        self._sync_calendar_auth_state()
+        if not hasattr(self, "_calendar_auth_pool"):
+            self._calendar_auth_pool = QThreadPool.globalInstance()
+        self._calendar_sign_in_signals = _CalendarSignInSignals()
+        self._calendar_sign_in_signals.done.connect(
+            self._on_calendar_sign_in_done,
+            Qt.ConnectionType.QueuedConnection,
+        )
+        self._calendar_sign_in_signals.failed.connect(
+            self._on_calendar_sign_in_failed,
+            Qt.ConnectionType.QueuedConnection,
+        )
+        self._calendar_auth_pool.start(
+            _CalendarSignInTask(authenticate, provider_name, self._calendar_sign_in_signals)
+        )
+
+    def _on_calendar_sign_in_done(self, provider_name: str) -> None:
+        self._calendar_sign_in_busy = False
+        self._sync_calendar_auth_state()
+        QMessageBox.information(
+            self,
+            "Calendar connected",
+            f"Signed in to {provider_name.title()} calendar. Save settings to use it in future reports.",
+        )
+
+    def _on_calendar_sign_in_failed(self, msg: str) -> None:
+        self._calendar_sign_in_busy = False
+        self._sync_calendar_auth_state()
+        log.warning(f"Calendar sign-in failed: {msg}")
+        QMessageBox.warning(self, "Calendar sign-in failed", msg)
+
     def _build_privacy_tab(self) -> None:
         page = QWidget()
         form = self._form()
@@ -802,6 +915,16 @@ class SettingsDialog(QDialog):
         form.addRow(self._label("App blacklist"), self._privacy_blacklist)
         form.addRow(self._hint(
             "One app or executable name per line. Captures from matching apps can be skipped elsewhere in the app."
+        ))
+
+        self._section_spacer(form)
+
+        self._privacy_encrypt_at_rest = QCheckBox(
+            "Encrypt captures at rest (Windows DPAPI)"
+        )
+        form.addRow(self._privacy_encrypt_at_rest)
+        form.addRow(self._hint(
+            "Uses a per-user AES-256 key sealed by Windows DPAPI. Analysis may be slightly slower because encrypted PNG/MP4 files must be decrypted before OCR or transcription."
         ))
 
         self._add_page(page)
@@ -1035,6 +1158,8 @@ class SettingsDialog(QDialog):
 
         self._report_combo.setCurrentText(c.reports.frequency)
         self._notify_check.setChecked(c.reports.deliver_via_notification)
+        self._calendar_provider_combo.setCurrentText(c.reports.calendar_provider)
+        self._sync_calendar_auth_state()
         self._obsidian_vault_path.setText(c.reports.obsidian_vault_path or "")
 
         self._retention_spin.setValue(c.storage.raw_retention_days)
@@ -1042,6 +1167,7 @@ class SettingsDialog(QDialog):
         self._min_space.setValue(c.storage.min_free_space_gb)
 
         self._privacy_blacklist.setPlainText("\n".join(c.privacy.app_blacklist))
+        self._privacy_encrypt_at_rest.setChecked(c.privacy.encrypt_at_rest)
 
         # Capture tab — seed the audio combos with the currently saved
         # device values so the user sees *something* immediately, then enumerate

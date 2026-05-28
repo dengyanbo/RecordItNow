@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "rin"
-version = "0.6.0"
+version = "0.7.0"
 description = "Record It Now — capture, analyze, and search your screen activity"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -38,7 +38,7 @@ capture = [
     "mss>=9.0",
     "sounddevice>=0.4",
     "numpy>=1.26",
-    "pywin32>=306",
+    "pywin32>=306; sys_platform == 'win32'",
 ]
 input = [
     "keyboard>=0.13",
@@ -62,6 +62,12 @@ reports = [
     "Jinja2>=3.1",
     "markdown>=3.6",
 ]
+calendar = [
+    "msal>=1.20",
+    "requests>=2.30",
+    "google-auth-oauthlib>=1.0",
+    "google-api-python-client>=2.0",
+]
 telemetry = [
     "sentry-sdk>=2.0",
 ]
@@ -70,9 +76,10 @@ dev = [
     "pytest-benchmark>=4.0",
     "pytest-cov>=5.0",
     "ruff>=0.4",
+    "pyinstaller>=6.0",
 ]
 all = [
-    "rin[storage,capture,input,analysis,rag,llm,reports,telemetry]",
+    "rin[storage,capture,input,analysis,rag,llm,reports,calendar,telemetry]",
 ]
 
 [project.scripts]

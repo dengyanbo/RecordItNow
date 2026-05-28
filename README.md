@@ -2,7 +2,7 @@
 
 > **Languages:** **English** · [中文](README.zh-CN.md)
 
-[![tests](https://img.shields.io/badge/tests-260%20%2F%20260-brightgreen)](#testing)
+[![tests](https://img.shields.io/badge/tests-290%20%2F%20290-brightgreen)](#testing)
 [![python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](#requirements)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D4)](#requirements)
@@ -65,6 +65,8 @@ lets an LLM make it searchable**.
 
 That single script provisions Python 3.12, FFmpeg, the GitHub Copilot CLI,
 and every Python dependency RIN needs.
+
+Want the standalone PyInstaller bundle instead? See [`docs/build-exe.md`](docs/build-exe.md).
 
 ```powershell
 .\install.ps1                       # default install
@@ -453,8 +455,8 @@ Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\RIN.lnk"
 
 ## Project status & changelog
 
-- Current: **v0.6.0** (released 2026-05-28)
-- Test totals: **260 / 260 pytest pass**, ruff clean
+- Current: **v0.7.0** (released 2026-05-28)
+- Test totals: **290 / 290 pytest pass**, ruff clean
 - Build / lint: green on Windows 10 / 11 + Python 3.11 / 3.12
 - CI runs on every push: [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
 - Full release history: [`CHANGELOG.md`](CHANGELOG.md)

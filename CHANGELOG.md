@@ -2,6 +2,129 @@
 
 All notable changes to RIN — Record It Now.
 
+## v0.7.0 — Second fleet release: the final v0.4 backlog
+
+Closes out the four remaining todos from the v0.4 backlog that we
+flagged as "needs its own session". They didn't — four more parallel
+sub-agents shipped them cleanly along strict file-ownership lines.
+
+This release drops the "Windows-only" sticker into "Windows-first":
+every OS-specific code path now routes through a `platform_compat`
+dispatcher with macOS and Linux stubs that import cleanly and return
+sane defaults. A genuine cross-platform release can follow without a
+rewrite.
+
+### Distribution
+- **True one-click installer** — new `scripts/RIN.spec` + `scripts/
+  build_exe.ps1` produce a PyInstaller `--onedir` bundle suitable for
+  shipping to non-Python users. `scripts/install.ps1` gains a
+  `-FromExe` flag that simply extracts the bundle into
+  `%LOCALAPPDATA%\Programs\RIN\` — no Python provisioning needed.
+  Spec covers ChromaDB, sentence-transformers, faster-whisper,
+  RapidOCR, mss, pynput, hidapi, PySide6 plugins, every
+  `rin.skills.builtin.*` subpackage, every `rin.llm.*` provider.
+  Bundle target 750-950 MB unpacked; the new `docs/build-exe.md`
+  documents the trade-off of excluding `torch.cuda` /
+  `torch.distributed` for a slimmer ship.
+- **`pyinstaller>=6.0`** added to the `dev` extras group.
+
+### Cross-platform (Windows still primary)
+- **New module `src/rin/utils/platform_compat.py`** with a small,
+  stable surface:
+  - `is_windows() / is_macos() / is_linux()`
+  - `list_audio_devices()` — Windows: DirectShow via ffmpeg.
+    macOS / Linux: stubs returning `[]`.
+  - `get_system_theme()` — Windows: `HKCU\Software\Microsoft\Windows\
+    CurrentVersion\Themes\Personalize\AppsUseLightTheme`. macOS /
+    Linux: returns `"light"` for now.
+  - `enable_autostart(cmd)` / `disable_autostart()` — Windows: `HKCU
+    \Run`. macOS / Linux: stub.
+  - `get_foreground_window_title()` /
+    `get_foreground_process_name()` — Windows: `win32gui` /
+    `win32process`. macOS / Linux: stubs.
+- **Three sibling modules** keep the Windows code (`_platform_windows`)
+  isolated from the macOS / Linux stubs (`_platform_macos`,
+  `_platform_linux`). The stubs **import safely** on Windows, with
+  docstrings pointing at the future real implementations
+  (CoreAudio, NSWorkspace, NSUserDefaults, LaunchAgent plist, X11 /
+  Wayland window title, PulseAudio, GTK Settings, `.desktop`
+  autostart).
+- `pywin32` is now declared with a `sys_platform == 'win32'` PEP 508
+  marker so a future `pip install rin` on macOS / Linux doesn't try
+  to pull the Windows-only package.
+
+### Calendar integration (optional)
+- **`src/rin/reports/integrations/`** — new package with `base.py`
+  (`CalendarEvent` frozen dataclass + `CalendarProvider` ABC),
+  `outlook.py` (Microsoft Graph via `msal` + `requests`),
+  `google.py` (Google Calendar via `google-auth-oauthlib` +
+  `googleapiclient`), and `factory.py` (`make_calendar_provider(cfg)`).
+- **OAuth tokens via OS keyring** — `rin-outlook-calendar` and
+  `rin-google-calendar` services. Outlook uses MSAL cache + silent
+  refresh; Google stores credentials with the refresh token path.
+- **Lazy imports throughout** — none of the calendar packages are
+  imported until the user actually picks a provider. Default install
+  doesn't pull them.
+- **Reports → Reports tab** in Settings gains a calendar-provider
+  dropdown + "Sign in…" button that runs the OAuth flow on a
+  `QThreadPool` so the dialog never blocks.
+- **`reports/generator.py`** injects a `## Calendar` section into the
+  prompt material when a provider is configured. Fetch failures are
+  logged + the report still produces output without the section.
+- New `[calendar]` extras group:
+  `[msal, requests, google-auth-oauthlib, google-api-python-client]`.
+
+### Encryption at rest (optional)
+- **`src/rin/utils/encryption.py`** — `CaptureCipher` wraps an
+  AES-256-GCM key, with the key file at
+  `%LOCALAPPDATA%\RIN\.master.key.enc` sealed by Windows DPAPI
+  (`win32crypt.CryptProtectData`).
+- `encrypt_file(src, dst)` / `decrypt_file(src, dst)` write a 12-byte
+  random nonce + ciphertext; tampered ciphertext raises
+  `cryptography.exceptions.InvalidTag` on read.
+- **Capture path**: when `cfg.privacy.encrypt_at_rest=True`, the
+  recorder + screenshotter rename their output to `*.enc` and the DB
+  row's `path` points at the encrypted file.
+- **Analysis path**: `image_analyzer` and `video_analyzer` decrypt
+  `*.enc` files into a `tempfile` before handing them to OCR /
+  ffmpeg; the temp file is cleaned up afterwards.
+- **Settings → Privacy tab** gains an "Encrypt captures at rest
+  (Windows DPAPI)" checkbox + a hint about the analysis-time
+  trade-off.
+- Default OFF. Zero regression for users who don't opt in.
+
+### Tests
+**290 / 290 pass** (+30 since v0.6.0):
+- Calendar ×10 (base, outlook, google, factory, generator-with-calendar)
+- Cross-platform ×9 (compat dispatcher, macOS stub, Linux stub)
+- Encryption ×7 (round-trip, nonce uniqueness, tamper detection,
+  file streaming, capture integration)
+- PyInstaller adds no tests (the build artefact is verified manually)
+
+### Internal
+- Version bumped to `0.7.0` in `src/rin/__init__.py` +
+  `pyproject.toml`.
+- 12 modified + 22 new files. Zero collisions on the still-hot files
+  (`config.py`, `ui/settings_dialog.py`, `pyproject.toml`,
+  `capture/screenshot.py`) thanks to explicit file-ownership lines in
+  each agent's prompt.
+
+### Decisions of record
+- **Cross-platform is "scaffolding", not "shipping"** — every dispatcher
+  has a real Windows implementation; macOS / Linux paths import safely
+  + return defaults. The actual native implementations are tracked
+  separately in plan.md.
+- **Calendar packages are optional** — `[calendar]` extras group, not
+  in `dev` or `all`. Lazy imports inside every method that touches
+  the relevant SDK.
+- **Encryption is opt-in default OFF** — no behavioural change for
+  existing users. A user enabling encryption later cannot decrypt
+  pre-encryption captures, by design.
+- **PyInstaller spec uses `--onedir`, not `--onefile`** — ChromaDB
+  needs a directory layout to load its native libraries at runtime.
+
+---
+
 ## v0.6.0 — Fleet release: 11 features in one batch
 
 Eleven backlog items landed in parallel via four sub-agents along

@@ -16,6 +16,8 @@ from ..paths import reports_dir
 from ..storage import session
 from ..storage.models import Analysis, Capture, Report, ReportText
 from ..utils.logging import get_logger
+from .integrations.base import CalendarEvent
+from .integrations.factory import make_calendar_provider
 from .templates import FALLBACK_REPORT_TEMPLATE, LLM_PROMPT_TEMPLATE
 
 log = get_logger(__name__)
@@ -108,7 +110,7 @@ def generate_report(
         except ProviderUnavailable:
             provider = None
 
-    body = _render_body(period, items, provider=provider)
+    body = _render_body(period, items, provider=provider, cfg=cfg)
     out_dir = out_dir or reports_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
     filename = f"{period.kind}-{period.start.strftime('%Y%m%d')}.md"
@@ -188,10 +190,14 @@ def _render_body(
     items: list[CaptureItem],
     *,
     provider: Provider | None,
+    cfg: RinConfig,
 ) -> str:
     if provider is None or not items:
         return _render_offline(period, items)
     material = _format_material(items)
+    calendar_material = _calendar_material(period, cfg)
+    if calendar_material:
+        material = f"{material}\n\n{calendar_material}"
     prompt = LLM_PROMPT_TEMPLATE.format(
         kind=period.kind,
         period_start=period.start.strftime("%Y-%m-%d %H:%M"),
@@ -235,6 +241,44 @@ def _render_offline_plain(period: ReportPeriod, items: list[CaptureItem]) -> str
             f"- cap-{it.id} {it.kind} @ {it.started_at.isoformat()} — {it.summary or '(no summary)'}"
         )
     return "\n".join(lines)
+
+
+def _calendar_material(period: ReportPeriod, cfg: RinConfig) -> str:
+    calendar_provider = make_calendar_provider(cfg)
+    if calendar_provider is None:
+        return ""
+    try:
+        events = calendar_provider.fetch_events(period.start, period.end)
+    except Exception as exc:
+        log.warning(f"Calendar fetch failed; continuing without calendar context: {exc}")
+        return ""
+    if not events:
+        return ""
+    lines = ["## Calendar", ""]
+    for event in events:
+        details = []
+        if event.organizer:
+            details.append(f"organizer: {event.organizer}")
+        if event.location:
+            details.append(f"location: {event.location}")
+        suffix = f" ({'; '.join(details)})" if details else ""
+        lines.append(
+            "- "
+            f"{_format_calendar_range(event)}: {event.subject}{suffix}"
+        )
+    return "\n".join(lines)
+
+
+def _format_calendar_range(event: CalendarEvent) -> str:
+    if event.start.date() == event.end.date():
+        return (
+            f"{event.start.strftime('%Y-%m-%d %H:%M')}"
+            f" → {event.end.strftime('%H:%M')}"
+        )
+    return (
+        f"{event.start.strftime('%Y-%m-%d %H:%M')}"
+        f" → {event.end.strftime('%Y-%m-%d %H:%M')}"
+    )
 
 
 def _format_material(items: list[CaptureItem]) -> str:

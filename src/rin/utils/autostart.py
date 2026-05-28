@@ -1,100 +1,39 @@
-"""Manage Windows "run at login" autostart via the ``Run`` registry key.
-
-The current-user ``HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run``
-key is used so RIN doesn't require admin to enable/disable. On non-Windows
-hosts every function is a no-op so we can import this module from tests
-anywhere.
-"""
+"""Manage autostart through platform-specific compatibility dispatchers."""
 from __future__ import annotations
 
-import sys
+from . import _platform_windows, platform_compat
 
-from ..utils.logging import get_logger
+RUN_KEY = _platform_windows.RUN_KEY
+VALUE_NAME = _platform_windows.VALUE_NAME
 
-log = get_logger(__name__)
-
-RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
-VALUE_NAME = "RIN"
+# Kept for backwards-compatible tests that monkeypatch ``rin.utils.autostart._winreg``.
+_winreg = _platform_windows._winreg
 
 
-def _winreg():
-    if sys.platform != "win32":
-        return None
+def _call_with_synced_winreg(callback, *args, **kwargs):
+    original = _platform_windows._winreg
+    _platform_windows._winreg = _winreg
     try:
-        import winreg  # type: ignore[import]
-    except ImportError:  # pragma: no cover - Windows-only
-        return None
-    return winreg
+        return callback(*args, **kwargs)
+    finally:
+        _platform_windows._winreg = original
 
 
 def is_enabled() -> bool:
-    winreg = _winreg()
-    if winreg is None:
-        return False
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_READ) as key:
-            value, _ = winreg.QueryValueEx(key, VALUE_NAME)
-            return bool(value)
-    except FileNotFoundError:
-        return False
-    except OSError as exc:
-        log.warning(f"autostart.is_enabled query failed: {exc}")
-        return False
+    return _call_with_synced_winreg(_platform_windows.is_autostart_enabled)
 
 
 def enable(command: str) -> bool:
-    """Set the Run key value to ``command``. Returns True on success."""
+    """Set the autostart entry to ``command``. Returns True on success."""
 
-    winreg = _winreg()
-    if winreg is None:
-        log.warning("autostart.enable: not on Windows")
-        return False
-    try:
-        with winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER,
-            RUN_KEY,
-            0,
-            winreg.KEY_SET_VALUE,
-        ) as key:
-            winreg.SetValueEx(key, VALUE_NAME, 0, winreg.REG_SZ, command)
-        log.info(f"Autostart enabled: {command}")
-        return True
-    except OSError as exc:
-        log.error(f"autostart.enable failed: {exc}")
-        return False
+    return _call_with_synced_winreg(platform_compat.enable_autostart, command)
 
 
 def disable() -> bool:
-    winreg = _winreg()
-    if winreg is None:
-        return False
-    try:
-        with winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER,
-            RUN_KEY,
-            0,
-            winreg.KEY_SET_VALUE,
-        ) as key:
-            try:
-                winreg.DeleteValue(key, VALUE_NAME)
-            except FileNotFoundError:
-                return True
-        log.info("Autostart disabled")
-        return True
-    except OSError as exc:
-        log.error(f"autostart.disable failed: {exc}")
-        return False
+    return _call_with_synced_winreg(platform_compat.disable_autostart)
 
 
 def default_command() -> str:
     """Return the most sensible ``rin`` invocation for the current install."""
 
-    if sys.platform != "win32":
-        return f'"{sys.executable}" -m rin'
-    # Prefer a frozen exe (``rin.exe`` next to python.exe in the venv) if present.
-    from pathlib import Path
-
-    candidate = Path(sys.executable).parent / "rin.exe"
-    if candidate.exists():
-        return f'"{candidate}"'
-    return f'"{sys.executable}" -m rin'
+    return _platform_windows.default_autostart_command()

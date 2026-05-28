@@ -2,8 +2,8 @@
 
 A single :class:`Theme` dataclass holds every color RIN's stylesheet
 needs. Two presets (``LIGHT`` and ``DARK``) ship by default, and
-:func:`system_theme` reads the Windows registry to honor the user's
-``Use light/dark mode`` choice.
+:func:`system_theme` delegates OS detection through
+:mod:`rin.utils.platform_compat`.
 
 The brand color (accent) is Microsoft-blue (``#0078D4`` on light,
 ``#60CDFF`` on dark) by default. Other presets in :data:`ACCENTS` allow
@@ -14,9 +14,10 @@ Qt's QSS engine.
 """
 from __future__ import annotations
 
-import sys
 from dataclasses import dataclass, replace
 from typing import Literal
+
+from ..utils import platform_compat
 
 ThemeName = Literal["light", "dark"]
 ThemeMode = Literal["light", "dark", "auto"]
@@ -171,33 +172,20 @@ ACCENTS: dict[str, dict[ThemeName, str]] = {
 
 
 def system_theme() -> ThemeName:
-    """Return the user's Windows theme preference.
+    """Return the current system theme preference.
 
-    Reads ``HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\
-    Personalize\\AppsUseLightTheme`` (1 = light, 0 = dark). Returns
-    ``"light"`` on non-Windows hosts or when the registry can't be read.
+    Windows reads the registry; the current macOS/Linux scaffolding returns
+    ``"light"`` until those backends grow real implementations.
     """
 
-    if sys.platform != "win32":
-        return "light"
-    try:
-        import winreg  # type: ignore[import]
-
-        with winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER,
-            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
-        ) as key:
-            value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
-        return "light" if value else "dark"
-    except OSError:
-        return "light"
+    return platform_compat.get_system_theme()
 
 
 def resolve(mode: ThemeMode) -> Theme:
     """Return the active :class:`Theme` for ``mode``.
 
     * ``"light"`` / ``"dark"`` → return the corresponding fixed theme.
-    * ``"auto"`` → pick based on the current Windows preference.
+    * ``"auto"`` → pick based on the current system preference.
     """
 
     if mode == "light":
