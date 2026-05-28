@@ -364,6 +364,7 @@ class SettingsDialog(QDialog):
             if line.strip()
         ]
         c.privacy.encrypt_at_rest = self._privacy_encrypt_at_rest.isChecked()
+        c.paused = self._privacy_pause_check.isChecked()
 
         for mode, rb in self._theme_radios.items():
             if rb.isChecked():
@@ -909,6 +910,53 @@ class SettingsDialog(QDialog):
         form = self._form()
         page.setLayout(form)
 
+        # --- Pause captures (moved here from the tray menu in v0.7.1) -----
+        #
+        # Two controls cover both the "indefinite" and "timed" pause modes
+        # that previously lived in the tray right-click menu. The toggle is
+        # persisted to `cfg.paused` on Save like any other field; the timed
+        # buttons apply immediately because they are time-sensitive actions
+        # the user would otherwise have to Save before they took effect.
+
+        self._privacy_pause_check = QCheckBox(
+            "Pause captures (skip every screenshot/recording until resumed)"
+        )
+        form.addRow(self._privacy_pause_check)
+        form.addRow(self._hint(
+            "Persists across restarts. The global Ctrl+Alt+Shift+P panic "
+            "hotkey is a separate, RAM-only quick toggle for emergency use."
+        ))
+
+        # Timed pause row: status + Pause 15min + Resume now
+        timed_row = QHBoxLayout()
+        timed_row.setSpacing(8)
+        timed_row.setContentsMargins(0, 0, 0, 0)
+        self._privacy_timed_status = QLabel("Not paused")
+        self._privacy_timed_status.setProperty("role", "field-hint")
+        self._privacy_pause_15_btn = QPushButton("Pause for 15 minutes")
+        self._privacy_pause_15_btn.clicked.connect(
+            lambda: self._apply_timed_pause(minutes=15)
+        )
+        self._privacy_pause_60_btn = QPushButton("Pause for 1 hour")
+        self._privacy_pause_60_btn.clicked.connect(
+            lambda: self._apply_timed_pause(minutes=60)
+        )
+        self._privacy_resume_btn = QPushButton("Resume now")
+        self._privacy_resume_btn.setProperty("flat", True)
+        self._privacy_resume_btn.clicked.connect(self._clear_timed_pause)
+        timed_row.addWidget(self._privacy_timed_status, 1)
+        timed_row.addWidget(self._privacy_pause_15_btn)
+        timed_row.addWidget(self._privacy_pause_60_btn)
+        timed_row.addWidget(self._privacy_resume_btn)
+        form.addRow(self._label("Timed pause"), _wrap(timed_row))
+        form.addRow(self._hint(
+            "Timed pauses apply immediately and persist across restarts. "
+            "They expire automatically — no Save required."
+        ))
+
+        self._section_spacer(form)
+
+        # --- App blacklist + at-rest encryption --------------------------
         self._privacy_blacklist = QPlainTextEdit()
         self._privacy_blacklist.setPlaceholderText("1Password.exe\nKeePassXC.exe")
         self._privacy_blacklist.setFixedHeight(160)
@@ -928,6 +976,61 @@ class SettingsDialog(QDialog):
         ))
 
         self._add_page(page)
+
+    # --- timed-pause helpers (immediate-apply, not gated by Save) ----------
+
+    def _apply_timed_pause(self, *, minutes: int) -> None:
+        """Write ``cfg.privacy.paused_until_iso`` and persist immediately.
+
+        Updates the live config on disk so the change is visible to the
+        running ``CaptureService`` without the user having to Save the
+        whole dialog.
+        """
+
+        from datetime import datetime, timedelta
+
+        until = datetime.now() + timedelta(minutes=minutes)
+        self._config.privacy.paused_until_iso = until.isoformat()
+        try:
+            self._config.save()
+        except Exception as exc:
+            log.error(f"Failed to persist timed pause: {exc}")
+            return
+        self._refresh_timed_pause_status()
+
+    def _clear_timed_pause(self) -> None:
+        """Cancel any active timed pause."""
+
+        self._config.privacy.paused_until_iso = None
+        try:
+            self._config.save()
+        except Exception as exc:
+            log.error(f"Failed to clear timed pause: {exc}")
+            return
+        self._refresh_timed_pause_status()
+
+    def _refresh_timed_pause_status(self) -> None:
+        """Update the inline status label + button enabled-state."""
+
+        from datetime import datetime
+
+        until_iso = self._config.privacy.paused_until_iso
+        until = None
+        if until_iso:
+            try:
+                until = datetime.fromisoformat(until_iso)
+            except ValueError:
+                until = None
+        now = datetime.now(until.tzinfo) if (until and until.tzinfo) else datetime.now()
+        active = until is not None and until > now
+        if active:
+            self._privacy_timed_status.setText(
+                f"Paused until {until.strftime('%H:%M')}"
+            )
+            self._privacy_resume_btn.setEnabled(True)
+        else:
+            self._privacy_timed_status.setText("Not paused")
+            self._privacy_resume_btn.setEnabled(False)
 
     def _build_storage_tab(self) -> None:
         page = QWidget()
@@ -1168,6 +1271,8 @@ class SettingsDialog(QDialog):
 
         self._privacy_blacklist.setPlainText("\n".join(c.privacy.app_blacklist))
         self._privacy_encrypt_at_rest.setChecked(c.privacy.encrypt_at_rest)
+        self._privacy_pause_check.setChecked(c.paused)
+        self._refresh_timed_pause_status()
 
         # Capture tab — seed the audio combos with the currently saved
         # device values so the user sees *something* immediately, then enumerate
