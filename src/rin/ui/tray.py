@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import Callable
+from datetime import datetime, timedelta
 
 from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal
 from PySide6.QtGui import QAction
@@ -177,6 +178,10 @@ class TrayApp(QObject):
         self._pause_action.triggered.connect(self._toggle_pause)
         self._menu.addAction(self._pause_action)
 
+        self._pause_15_action = QAction("⏸ Pause captures for 15 min", self)
+        self._pause_15_action.triggered.connect(self._pause_captures_for_15_minutes)
+        self._menu.addAction(self._pause_15_action)
+
         self._menu.addSeparator()
 
         self._diagnostic_action = QAction("🩺 Generate diagnostic report", self)
@@ -249,6 +254,18 @@ class TrayApp(QObject):
         self.input_manager.set_paused(new_state)
         self._pause_action.setChecked(new_state)
         notify("Captures paused" if new_state else "Captures resumed")
+
+    def _pause_captures_for_15_minutes(self) -> None:
+        try:
+            self.config.privacy.paused_until_iso = (
+                datetime.now() + timedelta(minutes=15)
+            ).isoformat()
+            self.config.save()
+        except Exception as exc:
+            log.error(f"Failed to save timed pause: {exc}")
+            notify("Pause failed", "Could not save the 15-minute pause.", level="warning")
+            return
+        notify("Captures paused", "New captures will be skipped for the next 15 minutes.")
 
     def _analyze_now(self) -> None:
         notify(

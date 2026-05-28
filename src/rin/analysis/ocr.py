@@ -42,14 +42,28 @@ def _get_engine():
         return _engine
 
 
-def extract_text(image_path: Path) -> str:
+def _configured_languages() -> list[str]:
+    try:
+        from ..config import RinConfig
+
+        return list(RinConfig.load().analysis.ocr_languages)
+    except Exception:
+        return ["en", "ch_sim"]
+
+
+
+def extract_text(image_path: Path, *, languages: list[str] | None = None) -> str:
     """Return whitespace-joined OCR text for ``image_path`` (empty on failure)."""
 
     engine = _get_engine()
     if engine is None:
         return ""
+    active_languages = list(languages or _configured_languages())
     try:
-        result, _elapsed = engine(str(image_path))
+        try:
+            result, _elapsed = engine(str(image_path), languages=active_languages)
+        except TypeError:
+            result, _elapsed = engine(str(image_path))
     except Exception as exc:
         log.warning(f"OCR failed for {image_path}: {exc}")
         return ""

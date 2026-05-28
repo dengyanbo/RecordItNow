@@ -24,7 +24,7 @@ For third-party attributions see [`NOTICE`](NOTICE).
 ## Conventions an agent should follow
 
 - **Run `ruff check src tests scripts` and `pytest -q` before declaring a
-  task done.** Both must be green. Test count is 233 and growing.
+  task done.** Both must be green. Test count is 260 and growing.
 - **Don't introduce GPL dependencies.** RIN is MIT. The decision log
   explicitly rejects `PySide6-Fluent-Widgets` (GPL-3.0). LGPL is OK via
   dynamic linking (we use PySide6, pynput).

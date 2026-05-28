@@ -55,18 +55,32 @@ class AnalysisConfig(BaseModel):
     hourly_enabled: bool = True
     require_idle_or_offhours: bool = True
     keyframe_interval_seconds: int = 5
-    whisper_model: str = "small"
+    ocr_languages: list[str] = Field(default_factory=lambda: ["en", "ch_sim"])
+    whisper_model: Literal["tiny", "base", "small", "medium", "large-v3"] = "small"
+
+
+class TelemetryConfig(BaseModel):
+    enabled: bool = False
+    dsn: str | None = None
+    environment: str = "production"
 
 
 class ReportsConfig(BaseModel):
     frequency: Literal["daily", "weekly", "off"] = "daily"
     deliver_via_notification: bool = True
+    # Surface this in Settings → Reports from ui/settings_dialog.py (owned by Agent D).
+    obsidian_vault_path: str | None = None
 
 
 class StorageConfig(BaseModel):
     raw_retention_days: int = 30
     keep_summaries_forever: bool = True
     min_free_space_gb: int = 1
+
+
+class PrivacyConfig(BaseModel):
+    app_blacklist: list[str] = Field(default_factory=list)
+    paused_until_iso: str | None = None
 
 
 class CaptureConfig(BaseModel):
@@ -80,6 +94,11 @@ class CaptureConfig(BaseModel):
     # (e.g. ``"Microphone (Realtek Audio)"`` or ``"Stereo Mix (Realtek Audio)"``).
     # Leave None to record video only.
     audio_device: str | None = None
+    # TODO(Agent D): surface these post-screenshot quick-note controls in
+    # Settings → Capture.
+    enable_quick_note: bool = False
+    quick_note_seconds: int = 5
+    quick_note_audio_device: str | None = None
 
 
 class UIConfig(BaseModel):
@@ -144,6 +163,7 @@ class RinConfig(BaseModel):
 
     paused: bool = False
     autostart: bool = False
+    first_run_completed: bool = False
     trigger: TriggerBinding = Field(default_factory=TriggerBinding)
     working_hours: WorkingHours = Field(default_factory=WorkingHours)
     llm: LLMProviderConfig = Field(default_factory=LLMProviderConfig)
@@ -151,7 +171,11 @@ class RinConfig(BaseModel):
     reports: ReportsConfig = Field(default_factory=ReportsConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     capture: CaptureConfig = Field(default_factory=CaptureConfig)
+    # TODO(Agent D): surface privacy blacklist + timed pause state in
+    # Settings → Privacy.
+    privacy: PrivacyConfig = Field(default_factory=PrivacyConfig)
     ui: UIConfig = Field(default_factory=UIConfig)
+    telemetry: TelemetryConfig = Field(default_factory=TelemetryConfig)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
 
     model_config = {"extra": "ignore"}

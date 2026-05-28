@@ -14,7 +14,7 @@ from ..llm import make_provider
 from ..llm.base import LLMError, Provider, ProviderUnavailable
 from ..paths import reports_dir
 from ..storage import session
-from ..storage.models import Analysis, Capture, Report
+from ..storage.models import Analysis, Capture, Report, ReportText
 from ..utils.logging import get_logger
 from .templates import FALLBACK_REPORT_TEMPLATE, LLM_PROMPT_TEMPLATE
 
@@ -136,10 +136,50 @@ def generate_report(
             s.add(report)
         s.flush()
         report_id = report.id
+        report_text = s.get(ReportText, report_id)
+        if report_text is None:
+            s.add(ReportText(report_id=report_id, body_text=body))
+        else:
+            report_text.body_text = body
 
+    _maybe_write_obsidian_copy(period, body, len(items), cfg)
     log.info(f"Generated {period.kind} report → {path}")
     return GeneratedReport(
         report_id=report_id, path=path, body=body, period=period, items=items
+    )
+
+
+def _maybe_write_obsidian_copy(
+    period: ReportPeriod,
+    body: str,
+    capture_count: int,
+    cfg: RinConfig,
+) -> None:
+    vault_root = (cfg.reports.obsidian_vault_path or "").strip()
+    if not vault_root:
+        return
+    folder_name = {
+        "daily": "Daily",
+        "weekly": "Weekly",
+    }.get(period.kind, period.kind.capitalize())
+    vault_path = Path(vault_root) / folder_name / f"{period.start.date().isoformat()}.md"
+    payload = _obsidian_front_matter(period, capture_count) + body
+    try:
+        vault_path.parent.mkdir(parents=True, exist_ok=True)
+        vault_path.write_text(payload, encoding="utf-8")
+        log.info(f"Wrote Obsidian {period.kind} report copy → {vault_path}")
+    except OSError as exc:
+        log.warning(f"Could not write Obsidian report copy to {vault_path}: {exc}")
+
+
+def _obsidian_front_matter(period: ReportPeriod, capture_count: int) -> str:
+    return (
+        "---\n"
+        f"date: {period.start.date().isoformat()}\n"
+        f"kind: {period.kind}\n"
+        f"captures: {capture_count}\n"
+        "generated_by: RIN\n"
+        "---\n\n"
     )
 
 

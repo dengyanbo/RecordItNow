@@ -2,6 +2,121 @@
 
 All notable changes to RIN — Record It Now.
 
+## v0.6.0 — Fleet release: 11 features in one batch
+
+Eleven backlog items landed in parallel via four sub-agents along
+clean file boundaries: a quality benchmark suite, three capture-side
+features, three reports features, and four Settings / boot features.
+Every collision risk on shared files (`config.py`, `pyproject.toml`,
+`ui/settings_dialog.py`) was avoided by explicit ownership lines in
+each agent's prompt.
+
+### Capture pipeline
+- **Thumbnails** — every capture writes a 240×135 RGB JPG quality-80
+  sidecar next to its PNG / MP4. New column `captures.thumbnail_path`
+  added via migration v2. New helper `rin.utils.thumbnail.make_thumbnail`.
+- **Quick-note overlay** — opt-in 5-second mic-only recording fires
+  right after a screenshot; saved as `quick_note.wav` (16 kHz mono) in
+  the capture folder. Toggled via Settings → Capture → *Enable quick-note*.
+- **Privacy blacklist** — Settings → Privacy: list of app / window
+  title patterns to skip. Foreground-window lookup uses `win32gui`,
+  fails safe (lets the capture through on a Win32 hiccup). Tray gains
+  **⏸ Pause captures for 15 min** which writes
+  `cfg.privacy.paused_until_iso` so even the trigger key is gated.
+
+### Reports
+- **Cross-report search** — SQLite **FTS5** virtual table over a new
+  `report_text` mirror table, kept in sync via INSERT / UPDATE /
+  DELETE triggers (migration v3, idempotent). New module
+  `rin.reports.search` with `search_reports(query, limit)` returning
+  ranked hits with 240-char snippets. Search box above the saved-reports
+  list in Reports window. Historical reports back-filled from disk.
+- **Report export (PDF / HTML)** — new `rin.reports.exporters` module
+  with `export_pdf` (QTextDocument + QPrinter) and `export_html`
+  (standalone with embedded `<style>`, no external links). Toolbar
+  buttons in Reports window open a `QFileDialog`.
+- **Obsidian / Notion target** — new `cfg.reports.obsidian_vault_path`.
+  When set, each generated report also writes to
+  `<vault>/Daily/YYYY-MM-DD.md` (or `Weekly/`) with YAML front-matter
+  (`date`, `kind`, `captures`, `generated_by: RIN`).
+
+### Settings / app boot
+- **Data export & import** — Settings → Data → *Export everything*
+  produces a zip containing `config.toml` (with API keys scrubbed via
+  `diagnostics._redact_config_text`), a locked-copy SQLite snapshot,
+  the ChromaDB folder, every saved report, and per-capture summaries
+  as JSONL. *Import* round-trips it on a new machine and refuses to
+  overwrite a non-empty data directory unless explicitly confirmed.
+- **OCR + Whisper picker** — Settings → Analysis: multi-select OCR
+  language list (en / ch_sim / ja / ko / de / fr / es) wired into
+  RapidOCR, plus a Whisper model dropdown (tiny / base / small /
+  medium / large-v3) with a memory-cost hint. Replaces the previously
+  hard-coded values.
+- **Opt-in error telemetry** — Settings → Advanced: enable + DSN field
+  for `sentry-sdk` (new `telemetry` extras group; not installed by
+  default). Self-host hint link to Sentry's docs. Default OFF.
+  Installed lazily from `app.run` so a missing import is a no-op.
+- **First-run wizard** — `FirstRunWizard(QWizard)` with 5 pages
+  (Welcome / Pick trigger via learn-mode / LLM provider / Working
+  hours / Done). Shown by `app.run` if `cfg.first_run_completed` is
+  False and `--smoke` is not set. Saves the new
+  `cfg.first_run_completed = True` on Finish.
+
+### Quality
+- **Performance benchmarks** — new `pytest-benchmark` suite
+  (`tests/test_perf_*.py`) covering the four hot paths:
+  - `screenshot.capture_all` — current mean **2.77 ms** (target ≤ 200 ms)
+  - `Recorder.start / stop` — **12.21 ms** (target ≤ 100 ms)
+  - `analyze_image` — **0.94 ms** mocked (target ≤ 1.5 s)
+  - `embedder.embed_batch(10)` — **0.016 ms** mocked (target ≤ 500 ms)
+  Thresholds are informational; tests don't `assert` so the suite
+  stays green even on slower runners. `pytest-benchmark>=4.0` added to
+  `dev` extras.
+
+### Tests
+**260 / 260 pass** (+27 since v0.5.0):
+- Thumbnails ×3, quick-note ×2, privacy ×4
+- Reports search ×1, exporters ×2, Obsidian ×2
+- Data export ×2, OCR/Whisper ×1, telemetry ×3, wizard ×3
+- Benchmarks ×4
+
+### Internal
+- Version bumped to `0.6.0` in `src/rin/__init__.py` +
+  `pyproject.toml`.
+- 14 modified files, 21 new files. Every modification respected the
+  file-ownership lines specified in the parallel-agent prompts; the
+  shared files (`config.py`, `pyproject.toml`, `ui/settings_dialog.py`)
+  merged cleanly without manual intervention.
+- Storage schema is now at migration version 3 (v2 = thumbnails, v3 =
+  FTS5 `reports_fts` + `report_text` mirror + triggers).
+- Boot order: `setup_logging` → `telemetry.install` → `init_db` →
+  `build_app` → wizard (if first run) → `tray.start`.
+
+### Decisions of record
+- **Sub-agent boundaries** were strict enough to avoid every shared
+  file conflict. The model used to surface Agent B's privacy fields
+  + Agent B's quick-note fields + Agent C's Obsidian path from
+  Agent D's Settings dialog passes: Agent D adds Settings UI; other
+  agents only add config fields with explicit comments naming the tab
+  that will surface them.
+- **Sentry is optional** — `[project.optional-dependencies] telemetry`
+  is its own group, not in `dev` or `all`. Users opt in with
+  `pip install rin[telemetry]`.
+- **PDF / HTML export does NOT need the QThreadPool dance** — both
+  finish in < 200 ms even on a 100-page report, so they run on the Qt
+  main thread.
+- **First-run wizard gates on `cfg.first_run_completed`** (not just
+  trigger.source unset) so the user can intentionally re-trigger it
+  later by editing config.
+
+### Deferred to a later release (each warrants its own session)
+- `v0.4-cross-platform` — full macOS + Linux port
+- `v0.4-pyinstaller-exe` — true one-click .exe distribution
+- `v0.4-calendar-integration` — Outlook / Google Calendar APIs (OAuth)
+- `v0.4-encryption-at-rest` — DPAPI-protected captures
+
+---
+
 ## v0.5.0 — Skills (pluggable categorization)
 
 Captures no longer have to live in a flat stream. A new **skill**

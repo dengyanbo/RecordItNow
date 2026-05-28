@@ -116,6 +116,50 @@ def _parse_dshow_audio_devices(stderr: str) -> list[str]:
     return devices
 
 
+def _write_pcm16_wav(out_path: Path, data, *, samplerate: int, channels: int) -> None:
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = data.tobytes() if hasattr(data, "tobytes") else bytes(data)
+    with wave.open(str(out_path), "wb") as wf:
+        wf.setnchannels(channels)
+        wf.setsampwidth(2)
+        wf.setframerate(samplerate)
+        wf.writeframes(payload)
+
+
+def record_short_clip(
+    seconds: int,
+    device: int | str | None,
+    out_path: Path,
+) -> Path:
+    """Record a short 16 kHz mono WAV clip for screenshot quick-notes."""
+
+    try:
+        import sounddevice as sd
+    except ImportError as exc:  # pragma: no cover
+        raise RuntimeError("sounddevice package not installed") from exc
+
+    out_path = Path(out_path)
+    samplerate = 16_000
+    channels = 1
+    seconds = max(0, int(seconds))
+    frame_count = samplerate * seconds
+    if frame_count <= 0:
+        _write_pcm16_wav(out_path, b"", samplerate=samplerate, channels=channels)
+        return out_path
+
+    clip = sd.rec(
+        frame_count,
+        samplerate=samplerate,
+        channels=channels,
+        dtype="int16",
+        device=device,
+    )
+    sd.wait()
+    _write_pcm16_wav(out_path, clip, samplerate=samplerate, channels=channels)
+    log.info(f"Quick-note recorded → {out_path}")
+    return out_path
+
+
 class AudioRecorder:
     """Records audio from a single device to a WAV file.
 
@@ -191,18 +235,18 @@ class AudioRecorder:
             return
         data = np.concatenate(self._buffers, axis=0)
         pcm16 = np.clip(data * 32767.0, -32768, 32767).astype(np.int16)
-        self.out_path.parent.mkdir(parents=True, exist_ok=True)
-        with wave.open(str(self.out_path), "wb") as wf:
-            wf.setnchannels(self.channels)
-            wf.setsampwidth(2)
-            wf.setframerate(self.samplerate)
-            wf.writeframes(pcm16.tobytes())
+        _write_pcm16_wav(
+            self.out_path,
+            pcm16,
+            samplerate=self.samplerate,
+            channels=self.channels,
+        )
         self._buffers.clear()
 
     def _write_silent_wav(self) -> None:
-        self.out_path.parent.mkdir(parents=True, exist_ok=True)
-        with wave.open(str(self.out_path), "wb") as wf:
-            wf.setnchannels(self.channels)
-            wf.setsampwidth(2)
-            wf.setframerate(self.samplerate)
-            wf.writeframes(b"")
+        _write_pcm16_wav(
+            self.out_path,
+            b"",
+            samplerate=self.samplerate,
+            channels=self.channels,
+        )

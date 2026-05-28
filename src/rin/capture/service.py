@@ -19,7 +19,9 @@ from ..storage import session
 from ..storage.files import has_enough_free_space, new_session_dir
 from ..storage.models import Capture, CaptureFile
 from ..utils.logging import get_logger
+from .audio import record_short_clip
 from .monitors import MonitorInfo, enumerate_monitors, refresh_monitor_records
+from .privacy import is_capture_allowed
 from .recorder import VideoRecorder
 from .screenshot import capture_screenshot
 
@@ -57,11 +59,20 @@ class CaptureService:
         with self._lock:
             if not self._guard_disk():
                 return None
+            paused_until = self._active_pause_until()
+            if paused_until is not None:
+                log.info(f"Skipping screenshot: captures paused until {paused_until.isoformat()}")
+                return None
+            if not is_capture_allowed(self.config.privacy.app_blacklist):
+                log.info("Skipping screenshot: foreground window matched privacy blacklist")
+                return None
             try:
-                return capture_screenshot(monitors=self._monitors)
+                cap_id = capture_screenshot(monitors=self._monitors)
             except Exception as exc:
                 log.error(f"Screenshot failed: {exc}")
                 return None
+            self._record_quick_note_if_enabled(cap_id)
+            return cap_id
 
     # --- recording ----------------------------------------------------------------
 
@@ -76,6 +87,10 @@ class CaptureService:
                 log.warning("start_recording called while already recording; ignoring")
                 return False
             if not self._guard_disk():
+                return False
+            paused_until = self._active_pause_until()
+            if paused_until is not None:
+                log.info(f"Skipping recording start: captures paused until {paused_until.isoformat()}")
                 return False
             monitors = self._monitors or enumerate_monitors()
             if not monitors:
@@ -141,10 +156,12 @@ class CaptureService:
         duration_ms = int((ended_at - started_at).total_seconds() * 1000)
         monitors = self._monitors or []
         with session() as s:
+            thumb = next((out.with_suffix(".jpg") for out in outputs if out.with_suffix(".jpg").exists()), None)
             cap = Capture(
                 kind="video",
                 status="captured",
                 folder=str(folder),
+                thumbnail_path=str(thumb) if thumb else None,
                 started_at=started_at,
                 ended_at=ended_at,
                 duration_ms=duration_ms,
@@ -177,6 +194,43 @@ class CaptureService:
             if path.stem.endswith(f"-{m.index}"):
                 return m.index
         return 0
+
+    def _active_pause_until(self) -> datetime | None:
+        paused_until_iso = self.config.privacy.paused_until_iso
+        if not paused_until_iso:
+            return None
+        try:
+            paused_until = datetime.fromisoformat(paused_until_iso)
+        except ValueError:
+            log.warning(f"Invalid paused_until_iso ignored: {paused_until_iso!r}")
+            return None
+        now = datetime.now(paused_until.tzinfo) if paused_until.tzinfo else datetime.now()
+        if paused_until > now:
+            return paused_until
+        return None
+
+    def _record_quick_note_if_enabled(self, capture_id: int) -> None:
+        cfg = self.config.capture
+        if not cfg.enable_quick_note or cfg.quick_note_seconds <= 0:
+            return
+        folder = self._capture_folder_for(capture_id)
+        if folder is None:
+            return
+        try:
+            record_short_clip(
+                cfg.quick_note_seconds,
+                cfg.quick_note_audio_device,
+                folder / "quick_note.wav",
+            )
+        except Exception as exc:
+            log.warning(f"Quick-note recording failed for capture_id={capture_id}: {exc}")
+
+    def _capture_folder_for(self, capture_id: int) -> Path | None:
+        with session() as s:
+            cap = s.get(Capture, capture_id)
+            if cap is None or not cap.folder:
+                return None
+            return Path(cap.folder)
 
     def _guard_disk(self) -> bool:
         if not has_enough_free_space(self.config.storage.min_free_space_gb):

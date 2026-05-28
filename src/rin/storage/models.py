@@ -8,6 +8,7 @@ Schema summary
 * ``analyses``        — per-capture LLM summary + OCR text + entities.
 * ``transcripts``     — Whisper output for video captures.
 * ``reports``         — generated daily / weekly markdown rollups.
+* ``report_text``     — cached markdown bodies for full-text report search.
 * ``tags`` + ``capture_tags`` — user / auto tagging (many-to-many).
 * ``buckets`` + ``capture_buckets`` — skill-driven categorization (v0.5+).
 * ``key_value``       — runtime state the user never directly edits.
@@ -35,6 +36,7 @@ class Capture(Base):
     duration_ms: Mapped[int | None] = mapped_column(default=None)
     file_size: Mapped[int | None] = mapped_column(BigInteger, default=None)
     folder: Mapped[str | None] = mapped_column(Text, default=None)
+    thumbnail_path: Mapped[str | None] = mapped_column(Text, default=None)
     notes: Mapped[str | None] = mapped_column(Text, default=None)
 
     files: Mapped[list[CaptureFile]] = relationship(
@@ -123,6 +125,19 @@ class Report(Base):
     kind: Mapped[str] = mapped_column(String(16))  # "daily" | "weekly" | "custom"
     markdown_path: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(default=func.now())
+
+    text_entry: Mapped[ReportText | None] = relationship(back_populates="report", uselist=False)
+
+
+class ReportText(Base):
+    __tablename__ = "report_text"
+
+    report_id: Mapped[int] = mapped_column(
+        ForeignKey("reports.id", ondelete="CASCADE"), primary_key=True
+    )
+    body_text: Mapped[str] = mapped_column("body", Text)
+
+    report: Mapped[Report] = relationship(back_populates="text_entry")
 
 
 class Tag(Base):

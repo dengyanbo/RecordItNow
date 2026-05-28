@@ -22,6 +22,7 @@ from pathlib import Path
 
 from ..config import CaptureConfig
 from ..utils.logging import get_logger
+from ..utils.thumbnail import make_thumbnail
 from .monitors import MonitorInfo
 
 log = get_logger(__name__)
@@ -104,6 +105,84 @@ def build_ffmpeg_command(
         )
     cmd.append(str(output))
     return cmd
+
+
+def _extract_still_frame(
+    video_path: Path,
+    frame_path: Path,
+    *,
+    binary: str = "ffmpeg",
+    runner=None,
+) -> bool:
+    runner = runner or subprocess.run
+    last_error = ""
+    attempts = [
+        [
+            binary,
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "warning",
+            "-skip_frame",
+            "nokey",
+            "-i",
+            str(video_path),
+            "-frames:v",
+            "1",
+            str(frame_path),
+        ],
+        [
+            binary,
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "warning",
+            "-i",
+            str(video_path),
+            "-frames:v",
+            "1",
+            str(frame_path),
+        ],
+    ]
+    for args in attempts:
+        with contextlib.suppress(OSError):
+            frame_path.unlink()
+        try:
+            proc = runner(
+                args,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=False,
+            )
+        except FileNotFoundError as exc:
+            log.warning(f"ffmpeg not found for thumbnail extraction: {exc}")
+            return False
+        last_error = (proc.stderr or "")[:200]
+        if proc.returncode == 0 and frame_path.exists():
+            return True
+    log.warning(
+        f"Thumbnail keyframe extraction failed for {video_path.name}: {last_error}"
+    )
+    return False
+
+
+def _write_video_thumbnail(video_path: Path, *, binary: str = "ffmpeg", runner=None) -> Path | None:
+    if not video_path.exists():
+        return None
+    frame_path = video_path.with_name(f"{video_path.stem}.thumbsrc.png")
+    thumb_path = video_path.with_suffix(".jpg")
+    try:
+        if not _extract_still_frame(video_path, frame_path, binary=binary, runner=runner):
+            return None
+        return make_thumbnail(frame_path, thumb_path)
+    except Exception as exc:
+        log.warning(f"Thumbnail generation failed for {video_path.name}: {exc}")
+        return None
+    finally:
+        with contextlib.suppress(OSError):
+            frame_path.unlink()
 
 
 class VideoRecorder:
@@ -199,5 +278,6 @@ class VideoRecorder:
                 except subprocess.TimeoutExpired:
                     rp.process.kill()
             outputs.append(rp.output)
+            _write_video_thumbnail(rp.output, binary=self.binary)
         self._procs.clear()
         return outputs

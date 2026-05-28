@@ -17,6 +17,7 @@ from . import __app_name__, __version__
 from .config import RinConfig
 from .storage import init_db
 from .utils.logging import get_logger, setup_logging
+from .utils.telemetry import install as install_telemetry
 
 log = get_logger(__name__)
 
@@ -81,11 +82,27 @@ def run(*, smoke: bool = False) -> int:
     log.info(f"{__app_name__} {__version__} starting")
 
     cfg = RinConfig.load()
+    install_telemetry(cfg.telemetry)
     log.debug(f"Loaded config: trigger.source={cfg.trigger.source} paused={cfg.paused}")
 
     init_db()
     app = build_app(cfg)
     _sigint_timer = _install_sigint_handler(app)  # keep timer alive
+
+    if not smoke and not cfg.first_run_completed and cfg.trigger.source == "unset":
+        from .input import InputManager
+        from .ui.wizard import FirstRunWizard
+
+        learn_manager = InputManager(cfg)
+        learn_manager.start()
+        try:
+            wizard = FirstRunWizard(
+                cfg,
+                learn_callback=lambda on_captured: learn_manager.start_learn(on_captured=on_captured),
+            )
+            wizard.exec()
+        finally:
+            learn_manager.stop()
 
     tray = None
     if not smoke:

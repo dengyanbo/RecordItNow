@@ -18,6 +18,7 @@ from ..storage import session
 from ..storage.files import new_session_dir
 from ..storage.models import Capture, CaptureFile
 from ..utils.logging import get_logger
+from ..utils.thumbnail import make_thumbnail
 from .monitors import MonitorInfo, enumerate_monitors
 
 log = get_logger(__name__)
@@ -49,6 +50,7 @@ def capture_screenshot(
         grabber_factory = mss.mss
 
     paths: list[tuple[MonitorInfo, Path, int]] = []
+    capture_thumbnail: Path | None = None
     with grabber_factory() as sct:
         for info in infos:
             region = {
@@ -60,6 +62,9 @@ def capture_screenshot(
             shot = sct.grab(region)
             out = folder / f"monitor-{info.index}.png"
             _save_png(shot, out)
+            thumbnail = _write_thumbnail(out)
+            if capture_thumbnail is None and thumbnail is not None:
+                capture_thumbnail = thumbnail
             paths.append((info, out, out.stat().st_size))
 
     total_bytes = sum(size for _, _, size in paths)
@@ -71,6 +76,7 @@ def capture_screenshot(
             kind="screenshot",
             status="captured",
             folder=str(folder),
+            thumbnail_path=str(capture_thumbnail) if capture_thumbnail else None,
             started_at=started_at,
             ended_at=ended_at,
             duration_ms=duration_ms,
@@ -93,6 +99,15 @@ def capture_screenshot(
 
     log.info(f"Screenshot captured: {len(paths)} monitor(s), {total_bytes} bytes → capture_id={cap_id}")
     return cap_id
+
+
+def _write_thumbnail(src: Path) -> Path | None:
+    thumb = src.with_suffix(".jpg")
+    try:
+        return make_thumbnail(src, thumb)
+    except Exception as exc:
+        log.warning(f"Thumbnail generation failed for {src.name}: {exc}")
+        return None
 
 
 def _save_png(shot: Any, dest: Path) -> None:

@@ -1,9 +1,9 @@
-"""Reports browser window — v0.4.2 async polish.
+"""Reports browser window — searchable archive + quick export.
 
 Left rail: card-styled list of saved reports (date, kind chip,
-file name). Right pane: rendered Markdown via ``QTextBrowser`` with
-theme-aware styling. Action row beneath the list keeps the generate +
-refresh actions visually attached to the listing.
+file name) with an in-list full-text search box. Right pane:
+rendered Markdown via ``QTextBrowser`` with theme-aware styling plus
+a lightweight export toolbar for PDF / HTML.
 
 Long-running operations (LLM-driven report generation) run on a
 :class:`QThreadPool` worker so the Qt main thread never blocks. A
@@ -17,9 +17,11 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, QRunnable, QSize, Qt, QThreadPool, Signal
 from PySide6.QtWidgets import (
+    QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QPushButton,
@@ -32,7 +34,9 @@ from sqlalchemy import select
 
 from ..config import RinConfig
 from ..reports import generate_report, weekly_period
+from ..reports.exporters import export_html, export_pdf, render_report_html
 from ..reports.generator import daily_period
+from ..reports.search import ReportHit, search_reports
 from ..storage import session
 from ..storage.models import Bucket, Report
 from ..utils.logging import get_logger
@@ -44,8 +48,8 @@ log = get_logger(__name__)
 
 
 class _ReportSignals(QObject):
-    done = Signal(object)         # (ReportResult)
-    failed = Signal(str)           # error message
+    done = Signal(object)  # (ReportResult)
+    failed = Signal(str)  # error message
 
 
 class _GenerateReportTask(QRunnable):
@@ -68,52 +72,9 @@ class _GenerateReportTask(QRunnable):
 
 
 def _md_to_html(text: str, theme: Theme) -> str:
-    """Render markdown to a themed HTML snippet for QTextBrowser."""
+    """Render markdown to themed HTML for QTextBrowser and export."""
 
-    try:
-        import markdown
-        body = markdown.markdown(text, extensions=["fenced_code", "tables"])
-    except ImportError:
-        body = "<pre>" + text.replace("<", "&lt;").replace(">", "&gt;") + "</pre>"
-    return f"""
-<style>
-  body {{
-    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
-    color: {theme.text};
-    background: transparent;
-    line-height: 1.55;
-  }}
-  h1, h2, h3, h4 {{ color: {theme.text}; margin-top: 18px; }}
-  h1 {{ font-size: 22px; }}
-  h2 {{ font-size: 18px; border-bottom: 1px solid {theme.border}; padding-bottom: 4px; }}
-  h3 {{ font-size: 15px; color: {theme.text_muted}; }}
-  blockquote {{
-    border-left: 3px solid {theme.accent};
-    margin-left: 0; padding-left: 12px;
-    color: {theme.text_muted};
-  }}
-  code {{
-    background: {theme.surface_alt};
-    border: 1px solid {theme.border};
-    border-radius: 4px;
-    padding: 1px 5px;
-    font-family: Consolas, 'Cascadia Code', monospace;
-  }}
-  pre code {{ border: none; padding: 0; }}
-  pre {{
-    background: {theme.surface_alt};
-    border: 1px solid {theme.border};
-    border-radius: 6px;
-    padding: 10px;
-    overflow-x: auto;
-  }}
-  a {{ color: {theme.accent}; text-decoration: none; }}
-  table {{ border-collapse: collapse; margin: 8px 0; }}
-  th, td {{ border: 1px solid {theme.border}; padding: 4px 8px; }}
-  th {{ background: {theme.surface_alt}; }}
-</style>
-<div>{body}</div>
-"""
+    return render_report_html(text, theme)
 
 
 class _EmptyState(QWidget):
@@ -191,6 +152,44 @@ class _ReportCard(QWidget):
         col.addWidget(path_label)
 
 
+class _ReportHitCard(QWidget):
+    """A report card with a search snippet shown beneath the header."""
+
+    def __init__(self, report: Report, hit: ReportHit, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.report = report
+        self.hit = hit
+
+        kind_text = {"daily": "Daily", "weekly": "Weekly"}.get(report.kind, report.kind)
+        date_label = QLabel(report.period_start.strftime("%b %d, %Y"))
+        date_label.setStyleSheet("font-weight: 600;")
+        kind_chip = QLabel(kind_text)
+        kind_chip.setProperty("role", "chip")
+        kind_chip.setProperty("accent", report.kind == "weekly")
+        kind_chip.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        kind_chip.setMinimumHeight(20)
+
+        top_row = QHBoxLayout()
+        top_row.setContentsMargins(0, 0, 0, 0)
+        top_row.setSpacing(8)
+        top_row.addWidget(date_label, 0, Qt.AlignmentFlag.AlignVCenter)
+        top_row.addStretch()
+        top_row.addWidget(kind_chip, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        snippet_label = QLabel(hit.snippet)
+        snippet_label.setWordWrap(True)
+        snippet_label.setProperty("role", "caption")
+        file_label = QLabel(Path(report.markdown_path).name)
+        file_label.setProperty("role", "caption")
+
+        col = QVBoxLayout(self)
+        col.setContentsMargins(14, 10, 14, 10)
+        col.setSpacing(4)
+        col.addLayout(top_row)
+        col.addWidget(snippet_label)
+        col.addWidget(file_label)
+
+
 class ReportsWindow(QWidget):
     def __init__(self, config: RinConfig, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -198,10 +197,28 @@ class ReportsWindow(QWidget):
         self.setWindowTitle("RIN — Reports")
         self.resize(1080, 680)
 
+        self._current_markdown: str | None = None
+        self._current_export_stem = "report"
+
         self._pool = QThreadPool.globalInstance()
         self._signals = _ReportSignals()
         self._signals.done.connect(self._on_report_done)
         self._signals.failed.connect(self._on_report_failed)
+
+        self._report_search = QLineEdit()
+        self._report_search.setPlaceholderText("Search report text…")
+        self._report_search.setProperty("role", "search")
+        self._report_search.returnPressed.connect(self._run_search)
+        self._report_search.textChanged.connect(self._on_search_text_changed)
+        self._report_search_btn = QPushButton("Search")
+        self._report_search_btn.setProperty("primary", True)
+        self._report_search_btn.setProperty("role", "search-attached")
+        self._report_search_btn.clicked.connect(self._run_search)
+        search_row = QHBoxLayout()
+        search_row.setContentsMargins(0, 0, 0, 0)
+        search_row.setSpacing(0)
+        search_row.addWidget(self._report_search, 1)
+        search_row.addWidget(self._report_search_btn)
 
         self._list = QListWidget()
         self._list.setProperty("role", "cards")
@@ -214,7 +231,6 @@ class ReportsWindow(QWidget):
         self._viewer.setOpenExternalLinks(True)
         self._viewer.setFrameShape(QFrame.Shape.NoFrame)
 
-        # Empty state for the right pane.
         self._empty_state = _EmptyState(
             "Select a report",
             "Pick a report on the left, or generate today's report to get started.",
@@ -224,8 +240,6 @@ class ReportsWindow(QWidget):
         self._viewer_stack.addWidget(self._empty_state)
         self._viewer_stack.addWidget(self._viewer)
 
-        # Busy overlay floats above the viewer stack — not part of any
-        # layout so it can resize to cover its parent at show() time.
         self._busy_host = QWidget()
         host_layout = QVBoxLayout(self._busy_host)
         host_layout.setContentsMargins(0, 0, 0, 0)
@@ -246,6 +260,12 @@ class ReportsWindow(QWidget):
         self._refresh_btn.setProperty("flat", True)
         self._refresh_btn.clicked.connect(self._refresh_list)
 
+        self._export_pdf_btn = QPushButton("Export PDF…")
+        self._export_pdf_btn.clicked.connect(self._export_current_pdf)
+        self._export_html_btn = QPushButton("Export HTML…")
+        self._export_html_btn.clicked.connect(self._export_current_html)
+        self._set_export_enabled(False)
+
         action_row = QHBoxLayout()
         action_row.setContentsMargins(0, 0, 0, 0)
         action_row.setSpacing(8)
@@ -256,6 +276,16 @@ class ReportsWindow(QWidget):
         action_row.addWidget(self._gen_week_btn)
         action_row.addStretch()
         action_row.addWidget(self._refresh_btn)
+
+        export_row = QHBoxLayout()
+        export_row.setContentsMargins(0, 0, 0, 8)
+        export_row.setSpacing(8)
+        export_label = QLabel("Export")
+        export_label.setProperty("heading", "subtle")
+        export_row.addWidget(export_label, 0, Qt.AlignmentFlag.AlignVCenter)
+        export_row.addStretch()
+        export_row.addWidget(self._export_pdf_btn)
+        export_row.addWidget(self._export_html_btn)
 
         side = QVBoxLayout()
         side.setContentsMargins(24, 24, 16, 24)
@@ -272,22 +302,23 @@ class ReportsWindow(QWidget):
         meta_row = QHBoxLayout()
         meta_row.setContentsMargins(0, 0, 0, 0)
         meta_row.setSpacing(8)
-        list_caption = QLabel("Saved reports")
-        list_caption.setProperty("heading", "subtle")
+        list_heading = QLabel("Saved reports")
+        list_heading.setProperty("heading", "subtle")
         count_chip = QLabel("0")
         count_chip.setProperty("role", "chip")
         count_chip.setAlignment(Qt.AlignmentFlag.AlignCenter)
         count_chip.setMinimumWidth(28)
-        meta_row.addWidget(list_caption)
+        meta_row.addWidget(list_heading)
         meta_row.addStretch()
         meta_row.addWidget(count_chip)
         side.addLayout(meta_row)
+        self._list_heading = list_heading
         self._list_caption = count_chip
 
+        side.addLayout(search_row)
         side.addWidget(self._list, 1)
         side.addLayout(action_row)
 
-        # Archives section: skill-driven bucket archives (v0.5+).
         side.addSpacing(8)
         arch_heading = QLabel("Archives")
         arch_heading.setProperty("heading", "subtle")
@@ -310,6 +341,8 @@ class ReportsWindow(QWidget):
 
         viewer_col = QVBoxLayout()
         viewer_col.setContentsMargins(24, 24, 24, 24)
+        viewer_col.setSpacing(0)
+        viewer_col.addLayout(export_row)
         viewer_col.addWidget(self._busy_host)
 
         viewer_widget = QWidget()
@@ -326,9 +359,16 @@ class ReportsWindow(QWidget):
 
     # --- slots --------------------------------------------------------------------
 
-    def _all_reports(self):
+    def _all_reports(self) -> list[Report]:
         with session() as s:
             return s.scalars(select(Report).order_by(Report.period_start.desc())).all()
+
+    def _reports_by_id(self, report_ids: list[int]) -> dict[int, Report]:
+        if not report_ids:
+            return {}
+        with session() as s:
+            rows = s.scalars(select(Report).where(Report.id.in_(report_ids))).all()
+        return {report.id: report for report in rows}
 
     def _theme(self) -> Theme:
         try:
@@ -336,23 +376,72 @@ class ReportsWindow(QWidget):
         except Exception:
             return LIGHT
 
+    def _on_search_text_changed(self, text: str) -> None:
+        if not text.strip():
+            self._populate_report_list(self._all_reports())
+            self._refresh_archives()
+
+    def _run_search(self) -> None:
+        query = self._report_search.text().strip()
+        if not query:
+            self._populate_report_list(self._all_reports())
+            self._refresh_archives()
+            return
+        hits = search_reports(query)
+        self._populate_hit_list(hits, query)
+        self._refresh_archives()
+
     def _refresh_list(self) -> None:
+        query = self._report_search.text().strip()
+        if query:
+            self._run_search()
+            return
+        self._populate_report_list(self._all_reports())
+        self._refresh_archives()
+
+    def _populate_report_list(self, rows: list[Report]) -> None:
         self._list.clear()
-        rows = self._all_reports()
+        self._list_heading.setText("Saved reports")
         self._list_caption.setText(str(len(rows)))
         if not rows:
             empty_item = QListWidgetItem("No reports yet — click Generate today.")
             empty_item.setFlags(Qt.ItemFlag.NoItemFlags)
             self._list.addItem(empty_item)
-        else:
-            for r in rows:
-                card = _ReportCard(r)
-                item = QListWidgetItem()
-                item.setSizeHint(card.sizeHint())
-                item.setData(Qt.ItemDataRole.UserRole, r.markdown_path)
-                self._list.addItem(item)
-                self._list.setItemWidget(item, card)
-        self._refresh_archives()
+            return
+        for report in rows:
+            card = _ReportCard(report)
+            item = QListWidgetItem()
+            item.setSizeHint(card.sizeHint())
+            item.setData(Qt.ItemDataRole.UserRole, report.markdown_path)
+            self._list.addItem(item)
+            self._list.setItemWidget(item, card)
+
+    def _populate_hit_list(self, hits: list[ReportHit], query: str) -> None:
+        self._list.clear()
+        self._list_heading.setText("Search hits")
+        self._list_caption.setText(str(len(hits)))
+        if not hits:
+            empty_item = QListWidgetItem(f"No report text matched “{query}”.")
+            empty_item.setFlags(Qt.ItemFlag.NoItemFlags)
+            self._list.addItem(empty_item)
+            return
+        reports = self._reports_by_id([hit.report_id for hit in hits])
+        added = 0
+        for hit in hits:
+            report = reports.get(hit.report_id)
+            if report is None:
+                continue
+            card = _ReportHitCard(report, hit)
+            item = QListWidgetItem()
+            item.setSizeHint(card.sizeHint())
+            item.setData(Qt.ItemDataRole.UserRole, report.markdown_path)
+            self._list.addItem(item)
+            self._list.setItemWidget(item, card)
+            added += 1
+        if added == 0:
+            empty_item = QListWidgetItem("No saved report files are available for these hits.")
+            empty_item.setFlags(Qt.ItemFlag.NoItemFlags)
+            self._list.addItem(empty_item)
 
     def _refresh_archives(self) -> None:
         """Populate the Archives list with closed skill buckets."""
@@ -375,39 +464,88 @@ class ReportsWindow(QWidget):
             placeholder.setFlags(Qt.ItemFlag.NoItemFlags)
             self._archives_list.addItem(placeholder)
             return
-        for b in rows:
-            label = f"{b.skill_name} · {b.key}"
+        for bucket in rows:
+            label = f"{bucket.skill_name} · {bucket.key}"
             item = QListWidgetItem(label)
-            item.setData(Qt.ItemDataRole.UserRole, b.archive_path)
+            item.setData(Qt.ItemDataRole.UserRole, bucket.archive_path)
             self._archives_list.addItem(item)
+
+    def _show_markdown_path(self, path: str, *, label: str) -> None:
+        try:
+            text = Path(path).read_text(encoding="utf-8")
+        except OSError as exc:
+            self._show_error(f"Could not open {label} {path}: {exc}")
+            return
+        self._show_markdown(text, export_stem=Path(path).stem)
+
+    def _show_markdown(self, text: str, *, export_stem: str) -> None:
+        self._current_markdown = text
+        self._current_export_stem = export_stem or "report"
+        self._set_export_enabled(True)
+        self._viewer.setHtml(_md_to_html(text, self._theme()))
+        self._viewer_stack.setCurrentWidget(self._viewer)
+
+    def _show_error(self, message: str) -> None:
+        self._current_markdown = None
+        self._current_export_stem = "report"
+        self._set_export_enabled(False)
+        self._viewer.setPlainText(message)
+        self._viewer_stack.setCurrentWidget(self._viewer)
 
     def _on_archive_clicked(self, item: QListWidgetItem) -> None:
         path = item.data(Qt.ItemDataRole.UserRole)
         if not path:
             return
-        try:
-            with open(path, encoding="utf-8") as fh:
-                text = fh.read()
-        except OSError as exc:
-            self._viewer.setPlainText(f"Could not open archive {path}: {exc}")
-            self._viewer_stack.setCurrentWidget(self._viewer)
-            return
-        self._viewer.setHtml(_md_to_html(text, self._theme()))
-        self._viewer_stack.setCurrentWidget(self._viewer)
+        self._show_markdown_path(str(path), label="archive")
 
     def _on_item_clicked(self, item: QListWidgetItem) -> None:
         path = item.data(Qt.ItemDataRole.UserRole)
         if not path:
             return
-        try:
-            with open(path, encoding="utf-8") as fh:
-                text = fh.read()
-        except OSError as exc:
-            self._viewer.setPlainText(f"Could not open {path}: {exc}")
-            self._viewer_stack.setCurrentWidget(self._viewer)
+        self._show_markdown_path(str(path), label="report")
+
+    # --- export --------------------------------------------------------------------
+
+    def _set_export_enabled(self, enabled: bool) -> None:
+        self._export_pdf_btn.setEnabled(enabled)
+        self._export_html_btn.setEnabled(enabled)
+
+    def _prompt_export_path(self, caption: str, suffix: str, file_filter: str) -> Path | None:
+        if not self._current_markdown:
+            return None
+        suggested = Path.home() / f"{self._current_export_stem}{suffix}"
+        chosen, _ = QFileDialog.getSaveFileName(
+            self,
+            caption,
+            str(suggested),
+            file_filter,
+        )
+        if not chosen:
+            return None
+        path = Path(chosen)
+        if path.suffix.lower() != suffix:
+            path = path.with_suffix(suffix)
+        return path
+
+    def _export_current_pdf(self) -> None:
+        path = self._prompt_export_path("Export report as PDF", ".pdf", "PDF Files (*.pdf)")
+        if path is None or self._current_markdown is None:
             return
-        self._viewer.setHtml(_md_to_html(text, self._theme()))
-        self._viewer_stack.setCurrentWidget(self._viewer)
+        try:
+            export_pdf(self._current_markdown, path, self._theme())
+            log.info(f"Exported report PDF → {path}")
+        except Exception as exc:
+            log.warning(f"Could not export report PDF to {path}: {exc}")
+
+    def _export_current_html(self) -> None:
+        path = self._prompt_export_path("Export report as HTML", ".html", "HTML Files (*.html)")
+        if path is None or self._current_markdown is None:
+            return
+        try:
+            export_html(self._current_markdown, path, self._theme())
+            log.info(f"Exported report HTML → {path}")
+        except Exception as exc:
+            log.warning(f"Could not export report HTML to {path}: {exc}")
 
     # --- generation (async) -------------------------------------------------------
 
@@ -419,8 +557,6 @@ class ReportsWindow(QWidget):
         """Kick off a report-generation worker and raise the busy overlay."""
 
         if not self._busy.isHidden():
-            # Already running — ignore re-clicks (also defensive: buttons
-            # are disabled, but a hotkey could still arrive).
             return
         self._busy.set_theme(self._theme())
         self._busy.set_message(f"Generating {label} report…")
@@ -439,17 +575,17 @@ class ReportsWindow(QWidget):
         self._set_actions_enabled(True)
         try:
             body = result.body
+            export_stem = result.path.stem
         except AttributeError:
             body = str(result)
-        self._viewer.setHtml(_md_to_html(body, self._theme()))
-        self._viewer_stack.setCurrentWidget(self._viewer)
+            export_stem = "report"
+        self._show_markdown(body, export_stem=export_stem)
         self._refresh_list()
 
     def _on_report_failed(self, msg: str) -> None:
         self._busy.hide()
         self._set_actions_enabled(True)
-        self._viewer.setPlainText(
+        self._show_error(
             f"Report generation failed:\n\n{msg}\n\n"
             "Check rin.log for details, or run Tray → Generate diagnostic report."
         )
-        self._viewer_stack.setCurrentWidget(self._viewer)

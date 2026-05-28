@@ -12,15 +12,70 @@ baseline; this module only handles deltas added in later phases.
     containing ``;`` would be incorrectly split). For any migration whose
     SQL might contain a semicolon inside a quoted string, register a
     *callable* instead and run statements explicitly with
-    ``conn.exec_driver_sql``. The current migration list is empty, so this
-    only matters for future entries.
+    ``conn.exec_driver_sql``. The report-search migration uses this pattern
+    for its FTS5 trigger bodies.
 """
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Callable
 
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
+
+
+def _add_capture_thumbnail_path(engine: Engine) -> None:
+    with engine.begin() as conn:
+        columns = {
+            row[1]
+            for row in conn.exec_driver_sql("PRAGMA table_info(captures)").fetchall()
+        }
+        if "thumbnail_path" not in columns:
+            conn.execute(text("ALTER TABLE captures ADD COLUMN thumbnail_path TEXT"))
+
+
+def _migrate_reports_fts(engine: Engine) -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS report_text (
+                    report_id INTEGER PRIMARY KEY,
+                    body TEXT NOT NULL,
+                    FOREIGN KEY (report_id) REFERENCES reports (id) ON DELETE CASCADE
+                )
+                """
+            )
+        )
+        if sqlite3.sqlite_version_info < (3, 9, 0):
+            return
+        conn.exec_driver_sql(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS reports_fts USING fts5(body, content='report_text', content_rowid='report_id')"
+        )
+        conn.exec_driver_sql(
+            """
+            CREATE TRIGGER IF NOT EXISTS report_text_ai AFTER INSERT ON report_text BEGIN
+                INSERT INTO reports_fts(rowid, body) VALUES (new.report_id, new.body);
+            END
+            """
+        )
+        conn.exec_driver_sql(
+            """
+            CREATE TRIGGER IF NOT EXISTS report_text_ad AFTER DELETE ON report_text BEGIN
+                INSERT INTO reports_fts(reports_fts, rowid, body) VALUES ('delete', old.report_id, old.body);
+            END
+            """
+        )
+        conn.exec_driver_sql(
+            """
+            CREATE TRIGGER IF NOT EXISTS report_text_au AFTER UPDATE ON report_text BEGIN
+                INSERT INTO reports_fts(reports_fts, rowid, body) VALUES ('delete', old.report_id, old.body);
+                INSERT INTO reports_fts(rowid, body) VALUES (new.report_id, new.body);
+            END
+            """
+        )
+        conn.exec_driver_sql("INSERT INTO reports_fts(reports_fts) VALUES ('rebuild')")
+
 
 # (target_version, sql_or_fn). ``fn`` receives the Engine and runs inside its own transaction.
 MIGRATIONS: list[tuple[int, str | Callable[[Engine], None]]] = [
@@ -53,6 +108,9 @@ MIGRATIONS: list[tuple[int, str | Callable[[Engine], None]]] = [
         );
         """,
     ),
+    (2, _add_capture_thumbnail_path),
+    # v0.4.0: report full-text search index backed by report_text + FTS5.
+    (3, _migrate_reports_fts),
 ]
 
 CURRENT_VERSION = max((m[0] for m in MIGRATIONS), default=0)

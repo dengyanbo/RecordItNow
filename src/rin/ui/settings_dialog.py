@@ -15,14 +15,18 @@ form whose labels sit *above* their inputs with explicit field widths.
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime
+from pathlib import Path
 
 from PySide6.QtCore import QObject, QRunnable, QSize, Qt, QThreadPool, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QButtonGroup,
     QCheckBox,
     QComboBox,
     QDialog,
+    QFileDialog,
     QFormLayout,
     QFrame,
     QHBoxLayout,
@@ -30,6 +34,8 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QRadioButton,
     QScrollArea,
@@ -53,6 +59,23 @@ REASONING_EFFORTS = ["", "none", "low", "medium", "high", "xhigh", "max"]
 WEEKDAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 THEME_MODES = ["auto", "light", "dark"]
 ACCENT_OPTIONS = ["blue", "purple", "teal", "orange"]
+OCR_LANGUAGE_OPTIONS = [
+    ("en", "English"),
+    ("ch_sim", "Chinese (Simplified)"),
+    ("ja", "Japanese"),
+    ("ko", "Korean"),
+    ("de", "German"),
+    ("fr", "French"),
+    ("es", "Spanish"),
+]
+WHISPER_MODEL_OPTIONS = ["tiny", "base", "small", "medium", "large-v3"]
+WHISPER_MODEL_HINTS = {
+    "tiny": "Memory hint: fastest startup, ~1 GB RAM on CPU.",
+    "base": "Memory hint: balanced for short notes, ~1.5 GB RAM on CPU.",
+    "small": "Memory hint: recommended default, ~2 GB RAM on CPU.",
+    "medium": "Memory hint: higher accuracy, ~5 GB RAM on CPU.",
+    "large-v3": "Memory hint: best accuracy, expect ~10 GB RAM on CPU.",
+}
 
 # Standard input-width tiers — picked from Fluent 2 form patterns. Used
 # everywhere instead of ``setMaximumWidth`` (which doesn't honor a
@@ -81,11 +104,14 @@ class SettingsDialog(QDialog):
     NAV_ITEMS: tuple[tuple[str, str, str], ...] = (
         ("Trigger",       "keyboard",  "What button captures or starts a recording."),
         ("Working hours", "clock",     "When background analysis is allowed to run."),
-        ("Analysis",      "lightbulb", "Choose your LLM provider and analysis cadence."),
+        ("Analysis",      "lightbulb", "Choose OCR languages, Whisper size, and your LLM provider."),
         ("Skills",        "lightbulb", "Plugins that categorize captures into buckets."),
         ("Reports",       "document",  "How and when daily/weekly summaries are produced."),
-        ("Capture",       "mic",       "Audio device and recording details."),
+        ("Capture",       "mic",       "Audio devices, recording details, and voice quick-notes."),
+        ("Privacy",       "dismiss",   "Apps that should never be captured or analyzed."),
         ("Storage",       "folder",    "Disk retention for captures and summaries."),
+        ("Data",          "save",      "Export or import your config, database, vectors, and reports."),
+        ("Advanced",      "settings",  "Optional telemetry and troubleshooting controls."),
         ("Appearance",    "color",     "Theme, accent colour, and density."),
     )
 
@@ -125,11 +151,14 @@ class SettingsDialog(QDialog):
         self._stack = QStackedWidget()
         self._build_trigger_tab()
         self._build_working_hours_tab()
-        self._build_llm_tab()
+        self._build_analysis_tab()
         self._build_skills_tab()
         self._build_reports_tab()
         self._build_capture_tab()
+        self._build_privacy_tab()
         self._build_storage_tab()
+        self._build_data_tab()
+        self._build_advanced_tab()
         self._build_appearance_tab()
 
         self._nav.currentRowChanged.connect(self._stack.setCurrentIndex)
@@ -260,6 +289,168 @@ class SettingsDialog(QDialog):
         spacer.setFixedHeight(height)
         form.addRow(spacer)
 
+    def _selected_ocr_languages(self) -> list[str]:
+        return [
+            item.data(Qt.ItemDataRole.UserRole)
+            for item in self._ocr_languages.selectedItems()
+        ]
+
+    def _set_selected_ocr_languages(self, languages: list[str]) -> None:
+        wanted = set(languages)
+        for index in range(self._ocr_languages.count()):
+            item = self._ocr_languages.item(index)
+            item.setSelected(item.data(Qt.ItemDataRole.UserRole) in wanted)
+
+    def _update_whisper_hint(self, model_name: str) -> None:
+        self._whisper_hint.setText(WHISPER_MODEL_HINTS.get(model_name, ""))
+
+    def _sync_quick_note_state(self, _checked: bool | None = None) -> None:
+        enabled = self._quick_note_enabled.isChecked()
+        self._quick_note_seconds.setEnabled(enabled)
+        self._quick_note_audio_combo.setEnabled(enabled)
+
+    def _sync_telemetry_state(self, _checked: bool | None = None) -> None:
+        enabled = self._telemetry_enabled.isChecked()
+        self._telemetry_dsn.setEnabled(enabled)
+
+    def _browse_obsidian_vault(self) -> None:
+        current = self._obsidian_vault_path.text().strip() or str(Path.home())
+        chosen = QFileDialog.getExistingDirectory(self, "Choose Obsidian vault", current)
+        if chosen:
+            self._obsidian_vault_path.setText(chosen)
+
+    def _apply_form_to_config(self) -> None:
+        c = self._config
+        c.trigger.hold_threshold_ms = self._hold_spin.value()
+
+        c.working_hours.enabled = self._wh_enabled.isChecked()
+        c.working_hours.start_hour = self._wh_start.value()
+        c.working_hours.end_hour = self._wh_end.value()
+        c.working_hours.weekdays = [
+            i for i, cb in enumerate(self._weekday_checks) if cb.isChecked()
+        ]
+        c.working_hours.idle_threshold_minutes = self._idle_minutes.value()
+
+        c.llm.name = self._llm_combo.currentText()
+        c.llm.model = self._llm_model.text().strip()
+        c.llm.reasoning_effort = self._effort_combo.currentText()
+        c.llm.azure_endpoint = self._azure_endpoint.text().strip() or None
+        c.llm.azure_deployment = self._azure_deployment.text().strip() or None
+        c.llm.timeout_seconds = self._llm_timeout.value()
+        c.analysis.hourly_enabled = self._hourly_enabled.isChecked()
+        c.analysis.require_idle_or_offhours = self._require_idle.isChecked()
+        c.analysis.ocr_languages = self._selected_ocr_languages() or ["en", "ch_sim"]
+        c.analysis.whisper_model = self._whisper_combo.currentText()  # type: ignore[assignment]
+
+        c.reports.frequency = self._report_combo.currentText()
+        c.reports.deliver_via_notification = self._notify_check.isChecked()
+        c.reports.obsidian_vault_path = self._obsidian_vault_path.text().strip() or None
+
+        c.storage.raw_retention_days = self._retention_spin.value()
+        c.storage.keep_summaries_forever = self._keep_summaries.isChecked()
+        c.storage.min_free_space_gb = self._min_space.value()
+
+        c.capture.audio_device = self._audio_combo.currentText().strip() or None
+        c.capture.audio_sample_rate = self._sample_rate_spin.value()
+        c.capture.audio_channels = self._channels_spin.value()
+        c.capture.enable_quick_note = self._quick_note_enabled.isChecked()
+        c.capture.quick_note_seconds = self._quick_note_seconds.value()
+        c.capture.quick_note_audio_device = self._quick_note_audio_combo.currentText().strip() or None
+
+        c.privacy.app_blacklist = [
+            line.strip()
+            for line in self._privacy_blacklist.toPlainText().splitlines()
+            if line.strip()
+        ]
+
+        for mode, rb in self._theme_radios.items():
+            if rb.isChecked():
+                c.ui.theme = mode  # type: ignore[assignment]
+                break
+        for accent, rb in self._accent_radios.items():
+            if rb.isChecked():
+                c.ui.accent = accent  # type: ignore[assignment]
+                break
+        c.ui.density = self._density_combo.currentText()  # type: ignore[assignment]
+
+        c.telemetry.enabled = self._telemetry_enabled.isChecked()
+        c.telemetry.dsn = self._telemetry_dsn.text().strip() or None
+
+    def _export_everything(self) -> None:
+        from ..utils.data_export import export_all
+
+        self._apply_form_to_config()
+        self._config.save()
+        default_name = f"rin-export-{datetime.now():%Y%m%d-%H%M%S}.zip"
+        default_path = str(Path.home() / default_name)
+        selected, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export everything",
+            default_path,
+            "Zip archives (*.zip)",
+        )
+        if not selected:
+            return
+        try:
+            export_all(Path(selected))
+        except Exception as exc:
+            log.warning(f"Data export failed: {exc}")
+            QMessageBox.warning(self, "Export failed", str(exc))
+            return
+        QMessageBox.information(
+            self,
+            "Export complete",
+            "Saved a portable RIN backup zip. API keys stay redacted and must be re-entered after import.",
+        )
+
+    def _import_everything(self) -> None:
+        from ..storage import db, init_db, vector_store
+        from ..utils.data_export import import_all
+
+        selected, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import RIN backup",
+            str(Path.home()),
+            "Zip archives (*.zip)",
+        )
+        if not selected:
+            return
+
+        answer = QMessageBox.warning(
+            self,
+            "Import backup",
+            (
+                "This overwrites config.toml, rin.db, reports, Chroma data, and summaries in the current RIN data directory.\n\n"
+                "API keys are intentionally redacted from exports and will need to be entered again after import. Continue?"
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        db.reset()
+        vector_store.reset()
+        try:
+            import_all(Path(selected), force=True)
+            updated = RinConfig.load()
+            for field_name in type(self._config).model_fields:
+                setattr(self._config, field_name, getattr(updated, field_name))
+            init_db()
+        except Exception as exc:
+            init_db()
+            log.warning(f"Data import failed: {exc}")
+            QMessageBox.warning(self, "Import failed", str(exc))
+            return
+
+        self.load_from_config()
+        self.config_saved.emit(self._config)
+        QMessageBox.information(
+            self,
+            "Import complete",
+            "Backup restored. RIN has reloaded the config; restarting is recommended for a fully clean state.",
+        )
+
     # --- tab builders -------------------------------------------------------------
 
     def _build_trigger_tab(self) -> None:
@@ -354,7 +545,7 @@ class SettingsDialog(QDialog):
 
         self._add_page(page)
 
-    def _build_llm_tab(self) -> None:
+    def _build_analysis_tab(self) -> None:
         page = QWidget()
         form = self._form()
         page.setLayout(form)
@@ -404,6 +595,29 @@ class SettingsDialog(QDialog):
             "Only analyze outside working hours OR when idle"
         )
         form.addRow(self._require_idle)
+
+        self._section_spacer(form)
+
+        self._ocr_languages = QListWidget()
+        self._ocr_languages.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self._ocr_languages.setFixedWidth(_W_URL)
+        self._ocr_languages.setFixedHeight(150)
+        for code, label in OCR_LANGUAGE_OPTIONS:
+            item = QListWidgetItem(f"{label} ({code})")
+            item.setData(Qt.ItemDataRole.UserRole, code)
+            self._ocr_languages.addItem(item)
+        form.addRow(self._label("OCR languages"), self._ocr_languages)
+        form.addRow(self._hint(
+            "Use Ctrl+click to select multiple RapidOCR languages. Default: English + Simplified Chinese."
+        ))
+
+        self._whisper_combo = QComboBox()
+        self._whisper_combo.addItems(WHISPER_MODEL_OPTIONS)
+        self._fixed(self._whisper_combo, _W_PICKER)
+        self._whisper_combo.currentTextChanged.connect(self._update_whisper_hint)
+        form.addRow(self._label("Whisper model"), self._whisper_combo)
+        self._whisper_hint = self._hint("")
+        form.addRow(self._whisper_hint)
 
         self._add_page(page)
 
@@ -557,6 +771,39 @@ class SettingsDialog(QDialog):
         self._notify_check = QCheckBox("Show a notification when a report is ready")
         form.addRow(self._notify_check)
 
+        self._section_spacer(form)
+
+        self._obsidian_vault_path = QLineEdit()
+        self._obsidian_vault_path.setPlaceholderText("Optional Obsidian vault folder")
+        self._fixed(self._obsidian_vault_path, _W_URL)
+        obsidian_browse = QPushButton("Browse…")
+        obsidian_browse.clicked.connect(self._browse_obsidian_vault)
+        obsidian_row = QHBoxLayout()
+        obsidian_row.setContentsMargins(0, 0, 0, 0)
+        obsidian_row.setSpacing(8)
+        obsidian_row.addWidget(self._obsidian_vault_path)
+        obsidian_row.addWidget(obsidian_browse, 0)
+        obsidian_row.addStretch()
+        form.addRow(self._label("Obsidian vault"), _wrap(obsidian_row))
+        form.addRow(self._hint(
+            "If set, generated markdown can link cleanly into your existing Obsidian notes workspace."
+        ))
+
+        self._add_page(page)
+
+    def _build_privacy_tab(self) -> None:
+        page = QWidget()
+        form = self._form()
+        page.setLayout(form)
+
+        self._privacy_blacklist = QPlainTextEdit()
+        self._privacy_blacklist.setPlaceholderText("1Password.exe\nKeePassXC.exe")
+        self._privacy_blacklist.setFixedHeight(160)
+        form.addRow(self._label("App blacklist"), self._privacy_blacklist)
+        form.addRow(self._hint(
+            "One app or executable name per line. Captures from matching apps can be skipped elsewhere in the app."
+        ))
+
         self._add_page(page)
 
     def _build_storage_tab(self) -> None:
@@ -636,7 +883,80 @@ class SettingsDialog(QDialog):
         self._fixed(self._channels_spin, 88)
         form.addRow(self._label("Audio channels"), self._channels_spin)
 
-        self._tabs_addTab_legacy_marker = None  # replaced below
+        self._section_spacer(form)
+
+        self._quick_note_enabled = QCheckBox(
+            "Enable 5-second voice quick-note after screenshot"
+        )
+        self._quick_note_enabled.toggled.connect(self._sync_quick_note_state)
+        form.addRow(self._quick_note_enabled)
+
+        self._quick_note_seconds = QSpinBox()
+        self._quick_note_seconds.setRange(1, 60)
+        self._quick_note_seconds.setSuffix(" s")
+        self._fixed(self._quick_note_seconds, _W_NUMBER)
+        form.addRow(self._label("Quick-note duration"), self._quick_note_seconds)
+
+        self._quick_note_audio_combo = QComboBox()
+        self._quick_note_audio_combo.setEditable(True)
+        self._fixed(self._quick_note_audio_combo, _W_URL)
+        form.addRow(self._label("Quick-note audio device"), self._quick_note_audio_combo)
+        form.addRow(self._hint(
+            "Uses the same DirectShow device list as the recording audio picker above."
+        ))
+
+        self._add_page(page)
+
+    def _build_data_tab(self) -> None:
+        page = QWidget()
+        form = self._form()
+        page.setLayout(form)
+
+        export_btn = QPushButton("Export everything to zip…")
+        export_btn.setProperty("primary", True)
+        export_btn.clicked.connect(self._export_everything)
+        form.addRow(export_btn)
+        form.addRow(self._hint(
+            "Creates a zip with a redacted config.toml, a live SQLite snapshot, Chroma data, reports, and analysis summaries."
+        ))
+
+        self._section_spacer(form)
+
+        import_btn = QPushButton("Import from zip…")
+        import_btn.clicked.connect(self._import_everything)
+        form.addRow(import_btn)
+        form.addRow(self._hint(
+            "Restores an export into the current RIN data directory. API keys remain redacted by design."
+        ))
+
+        self._add_page(page)
+
+    def _build_advanced_tab(self) -> None:
+        page = QWidget()
+        form = self._form()
+        page.setLayout(form)
+
+        self._telemetry_enabled = QCheckBox("Enable Sentry error telemetry")
+        self._telemetry_enabled.toggled.connect(self._sync_telemetry_state)
+        form.addRow(self._telemetry_enabled)
+        form.addRow(self._hint(
+            "Optional and off by default. Install the telemetry extra to activate sentry-sdk at startup."
+        ))
+
+        self._section_spacer(form)
+
+        self._telemetry_dsn = QLineEdit()
+        self._telemetry_dsn.setPlaceholderText("https://public@example.ingest.sentry.io/1")
+        self._fixed(self._telemetry_dsn, _W_URL)
+        form.addRow(self._label("Sentry DSN"), self._telemetry_dsn)
+
+        self._sentry_link = QLabel(
+            '<a href="https://develop.sentry.dev/self-hosted/">Sentry self-host</a>'
+        )
+        self._sentry_link.setProperty("role", "field-hint")
+        self._sentry_link.setOpenExternalLinks(True)
+        form.addRow(self._sentry_link)
+
         self._add_page(page)
 
     def _build_appearance_tab(self) -> None:
@@ -709,22 +1029,36 @@ class SettingsDialog(QDialog):
         self._llm_timeout.setValue(c.llm.timeout_seconds)
         self._hourly_enabled.setChecked(c.analysis.hourly_enabled)
         self._require_idle.setChecked(c.analysis.require_idle_or_offhours)
+        self._set_selected_ocr_languages(c.analysis.ocr_languages)
+        self._whisper_combo.setCurrentText(c.analysis.whisper_model)
+        self._update_whisper_hint(c.analysis.whisper_model)
 
         self._report_combo.setCurrentText(c.reports.frequency)
         self._notify_check.setChecked(c.reports.deliver_via_notification)
+        self._obsidian_vault_path.setText(c.reports.obsidian_vault_path or "")
 
         self._retention_spin.setValue(c.storage.raw_retention_days)
         self._keep_summaries.setChecked(c.storage.keep_summaries_forever)
         self._min_space.setValue(c.storage.min_free_space_gb)
 
-        # Capture tab — seed the audio combo with the currently saved
-        # device so the user sees *something* immediately, then enumerate
+        self._privacy_blacklist.setPlainText("\n".join(c.privacy.app_blacklist))
+
+        # Capture tab — seed the audio combos with the currently saved
+        # device values so the user sees *something* immediately, then enumerate
         # the real device list on a worker (ffmpeg shells take 1-3 s).
         initial_device = c.capture.audio_device or ""
-        self._apply_audio_devices([], initial=initial_device)
+        quick_note_device = c.capture.quick_note_audio_device or ""
+        self._apply_audio_devices([], initial=initial_device, quick_note_initial=quick_note_device)
         self._refresh_audio_devices()
         self._sample_rate_spin.setValue(c.capture.audio_sample_rate)
         self._channels_spin.setValue(c.capture.audio_channels)
+        self._quick_note_enabled.setChecked(c.capture.enable_quick_note)
+        self._quick_note_seconds.setValue(c.capture.quick_note_seconds)
+        self._sync_quick_note_state()
+
+        self._telemetry_enabled.setChecked(c.telemetry.enabled)
+        self._telemetry_dsn.setText(c.telemetry.dsn or "")
+        self._sync_telemetry_state()
 
         # Appearance tab.
         self._theme_radios[c.ui.theme].setChecked(True)
@@ -732,50 +1066,10 @@ class SettingsDialog(QDialog):
         self._density_combo.setCurrentText(c.ui.density)
 
     def _on_save(self) -> None:
-        c = self._config
-        c.trigger.hold_threshold_ms = self._hold_spin.value()
-
-        c.working_hours.enabled = self._wh_enabled.isChecked()
-        c.working_hours.start_hour = self._wh_start.value()
-        c.working_hours.end_hour = self._wh_end.value()
-        c.working_hours.weekdays = [
-            i for i, cb in enumerate(self._weekday_checks) if cb.isChecked()
-        ]
-        c.working_hours.idle_threshold_minutes = self._idle_minutes.value()
-
-        c.llm.name = self._llm_combo.currentText()
-        c.llm.model = self._llm_model.text().strip()
-        c.llm.reasoning_effort = self._effort_combo.currentText()
-        c.llm.azure_endpoint = self._azure_endpoint.text().strip() or None
-        c.llm.azure_deployment = self._azure_deployment.text().strip() or None
-        c.llm.timeout_seconds = self._llm_timeout.value()
-        c.analysis.hourly_enabled = self._hourly_enabled.isChecked()
-        c.analysis.require_idle_or_offhours = self._require_idle.isChecked()
-
-        c.reports.frequency = self._report_combo.currentText()
-        c.reports.deliver_via_notification = self._notify_check.isChecked()
-
-        c.storage.raw_retention_days = self._retention_spin.value()
-        c.storage.keep_summaries_forever = self._keep_summaries.isChecked()
-        c.storage.min_free_space_gb = self._min_space.value()
-
-        c.capture.audio_device = self._audio_combo.currentText().strip() or None
-        c.capture.audio_sample_rate = self._sample_rate_spin.value()
-        c.capture.audio_channels = self._channels_spin.value()
-
-        for mode, rb in self._theme_radios.items():
-            if rb.isChecked():
-                c.ui.theme = mode  # type: ignore[assignment]
-                break
-        for accent, rb in self._accent_radios.items():
-            if rb.isChecked():
-                c.ui.accent = accent  # type: ignore[assignment]
-                break
-        c.ui.density = self._density_combo.currentText()  # type: ignore[assignment]
-
-        c.save()
+        self._apply_form_to_config()
+        self._config.save()
         log.info("Settings saved")
-        self.config_saved.emit(c)
+        self.config_saved.emit(self._config)
         self.accept()
 
     # --- learn-mode glue ----------------------------------------------------------
@@ -809,7 +1103,12 @@ class SettingsDialog(QDialog):
 
     # --- audio device picker ------------------------------------------------------
 
-    def _populate_audio_combo(self, *, initial: str = "") -> None:
+    def _populate_audio_combo(
+        self,
+        *,
+        initial: str = "",
+        quick_note_initial: str = "",
+    ) -> None:
         """Synchronously enumerate + populate. Used at dialog open time only;
         manual refresh after that is dispatched through a worker."""
 
@@ -820,27 +1119,41 @@ class SettingsDialog(QDialog):
         except Exception as exc:
             log.warning(f"Audio device enumeration failed: {exc}")
             devices = []
-        self._apply_audio_devices(devices, initial=initial)
+        self._apply_audio_devices(
+            devices,
+            initial=initial,
+            quick_note_initial=quick_note_initial,
+        )
 
-    def _apply_audio_devices(self, devices, *, initial: str = "") -> None:
-        """Repopulate the combo from a list of device names."""
+    def _apply_audio_devices(
+        self,
+        devices,
+        *,
+        initial: str = "",
+        quick_note_initial: str = "",
+    ) -> None:
+        """Repopulate the audio combos from a list of device names."""
 
-        self._audio_combo.blockSignals(True)
-        self._audio_combo.clear()
-        # Always offer a blank "no audio" choice as the first entry.
-        self._audio_combo.addItem("")
-        for name in devices:
-            self._audio_combo.addItem(name)
-        # Make sure the configured device is selectable even if enumeration missed it.
-        if initial and self._audio_combo.findText(initial) == -1:
-            self._audio_combo.addItem(initial)
-        self._audio_combo.setCurrentText(initial)
-        self._audio_combo.blockSignals(False)
+        combos = (
+            (self._audio_combo, initial),
+            (self._quick_note_audio_combo, quick_note_initial),
+        )
+        for combo, current in combos:
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItem("")
+            for name in devices:
+                combo.addItem(name)
+            if current and combo.findText(current) == -1:
+                combo.addItem(current)
+            combo.setCurrentText(current)
+            combo.blockSignals(False)
 
     def _refresh_audio_devices(self) -> None:
         """Async refresh: hide button, spin, repopulate on completion."""
 
         current = self._audio_combo.currentText().strip()
+        quick_note_current = self._quick_note_audio_combo.currentText().strip()
         self._refresh_audio_button.setVisible(False)
         self._refresh_audio_spinner.set_accent(
             with_accent(resolve(self._config.ui.theme), self._config.ui.accent).accent
@@ -854,10 +1167,15 @@ class SettingsDialog(QDialog):
             self._audio_signals.done.connect(self._on_audio_refresh_done)
             self._audio_signals.failed.connect(self._on_audio_refresh_failed)
         self._pending_audio_initial = current
+        self._pending_quick_note_audio_initial = quick_note_current
         self._audio_pool.start(_AudioRefreshTask(self._audio_signals))
 
     def _on_audio_refresh_done(self, devices: list) -> None:
-        self._apply_audio_devices(devices, initial=getattr(self, "_pending_audio_initial", ""))
+        self._apply_audio_devices(
+            devices,
+            initial=getattr(self, "_pending_audio_initial", ""),
+            quick_note_initial=getattr(self, "_pending_quick_note_audio_initial", ""),
+        )
         self._refresh_audio_spinner.stop()
         self._refresh_audio_spinner.hide()
         self._refresh_audio_button.setVisible(True)
