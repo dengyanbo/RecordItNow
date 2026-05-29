@@ -55,3 +55,6 @@ chroma/
 *.db
 *.db-journal
 *.log
+dist/RIN/
+dist/RIN-*.zip
+build/RIN/

@@ -96,8 +96,6 @@ class CaptureConfig(BaseModel):
     # (e.g. ``"Microphone (Realtek Audio)"`` or ``"Stereo Mix (Realtek Audio)"``).
     # Leave None to record video only.
     audio_device: str | None = None
-    # TODO(Agent D): surface these post-screenshot quick-note controls in
-    # Settings → Capture.
     enable_quick_note: bool = False
     quick_note_seconds: int = 5
     quick_note_audio_device: str | None = None
@@ -173,8 +171,6 @@ class RinConfig(BaseModel):
     reports: ReportsConfig = Field(default_factory=ReportsConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     capture: CaptureConfig = Field(default_factory=CaptureConfig)
-    # TODO(Agent D): surface privacy blacklist + timed pause state in
-    # Settings → Privacy.
     privacy: PrivacyConfig = Field(default_factory=PrivacyConfig)
     ui: UIConfig = Field(default_factory=UIConfig)
     telemetry: TelemetryConfig = Field(default_factory=TelemetryConfig)

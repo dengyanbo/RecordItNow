@@ -2,6 +2,85 @@
 
 All notable changes to RIN — Record It Now.
 
+## v0.7.1 — Polish + first real .exe asset
+
+Bug fixes, ergonomics, and the **first actually-built PyInstaller
+bundle** attached to a GitHub Release. Non-developer users can now
+unzip + run `RIN.exe` directly — no Python required.
+
+### Bug fixes (found during full v0.7.0 e2e test)
+- **`exporters.export_html/pdf(theme=None)` crash** (R20) — added a
+  `_resolve_theme` helper that returns `rin.ui.theme.LIGHT` when the
+  caller passes `None`. All three public functions now have a
+  `theme: Theme | None = None` default. Both formats now produce
+  valid output without requiring a live Qt `Theme` instance.
+- **Tray context-menu cold first-click lag** (R21) — measured at
+  ~470 ms (Qt scanning emoji-font metrics for action labels via
+  `sizeHint()`). New `TrayApp._prewarm_menu()` runs
+  `ensurePolished` + `sizeHint` + a hidden off-screen `popup()`
+  250 ms after `tray.show()`. **Measured: first right-click drops
+  from 550 ms to 3.8 ms — ~150× speedup.**
+- **Misleading "Screenshot failed" toast** (R22) — pressing F12 while
+  paused, blacklisted, or out of disk all showed the same generic
+  warning. New `SkipInfo` frozen dataclass + `service.last_skip()`
+  accessor + `tray._notify_skip()` map each skip reason to a
+  context-appropriate toast (e.g. *Captures paused · Resumes at 17:06*
+  at info level instead of *Capture failed* at warning level).
+- **`PyInstaller` spec crash on first build** — `Tree()` returns
+  3-tuples for `COLLECT`, not the 2-tuples `Analysis.datas` wants.
+  Replaced with a local `_walk_as_datas` helper that produces the
+  flat `(src, dst)` form.
+
+### Ergonomics
+- **Pause controls moved from tray menu into Settings → Privacy**
+  (R23) — the tray right-click menu was getting cluttered. The
+  persistent "Pause captures" checkbox now lives next to the privacy
+  blacklist; immediate-apply "Pause for 15 minutes" / "Pause for 1
+  hour" / "Resume now" buttons sit below it with a live status label
+  ("Paused until 17:06"). The global Ctrl+Alt+Shift+P panic hotkey
+  is unchanged.
+- Tray menu trimmed from 10 items to 8.
+
+### Distribution
+- **🎁 First real one-click .exe** — `dist/RIN-v0.7.1-windows-exe.zip`
+  (423 MB compressed, 1.1 GB unpacked). PyInstaller `--onedir` bundle
+  covering ChromaDB, sentence-transformers, faster-whisper, RapidOCR,
+  mss, pynput, hidapi, PySide6 plugins, every `rin.skills.builtin.*`
+  subpackage, every `rin.llm.*` provider. Smoke-tested: 53 MB RAM,
+  responding tray icon, clean schedulers, after a clean unzip.
+- Spec excludes `torch.cuda` / `torch.distributed` / `torch.onnx` /
+  `torch.testing` / `torch.utils.{tensorboard,benchmark}` since
+  RIN's inference path never touches them. ~20 MB savings;
+  `torch_cpu.dll` (294 MB) is irreducible.
+
+### Cleanups
+- **2 stale `TODO(Agent D)` comments** removed from `config.py`. Both
+  were notes that Agent D in v0.6.0 actually fulfilled — the comments
+  outlived their purpose.
+- **`mss.mss()` → `mss.MSS()`** across 3 files (`monitors.py`,
+  `screenshot.py`, `utils/diagnostics.py`). `mss` 10.2 deprecated the
+  factory wrapper. Pytest warnings drop from 3 → 1 (the remaining is
+  a chromadb 3rd-party deprecation).
+
+### Tests
+**306 / 306 pass** (+16 since v0.7.0):
+- 9 new `tests/test_capture_skip_reasons.py` — every `SkipReason`,
+  reset-on-success guard, frozen dataclass guard, double-start guard
+- 7 new `tests/test_settings_pause_controls.py` — round-trip via
+  `cfg.paused` checkbox, timed-pause apply, timed-pause clear,
+  expired ISO handling, tray-menu-no-longer-has-pause, panic-toggle
+  still-works guard
+
+### Internal
+- Version bumped to `0.7.1` in `src/rin/__init__.py` +
+  `pyproject.toml`.
+- `e2e_test_results` table populated with 12 phases of real-data e2e
+  results from the v0.7.0 manual test session.
+- `review_findings` got R20–R23 (one medium, three lows), all marked
+  fixed.
+
+---
+
 ## v0.7.0 — Second fleet release: the final v0.4 backlog
 
 Closes out the four remaining todos from the v0.4 backlog that we

@@ -35,7 +35,7 @@ def capture_screenshot(
     """Capture every monitor to PNG. Returns the new ``Capture.id``.
 
     ``grabber_factory`` is for tests — pass a callable returning an mss-like
-    context manager. By default we use the real ``mss.mss()``.
+    context manager. By default we use the real ``mss.MSS``.
     """
 
     started_at = datetime.now()
@@ -50,7 +50,7 @@ def capture_screenshot(
     if grabber_factory is None:
         import mss
 
-        grabber_factory = mss.mss
+        grabber_factory = mss.MSS
 
     effective_cipher = cipher or (CaptureCipher() if encrypt_at_rest else None)
     should_encrypt = (

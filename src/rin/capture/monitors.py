@@ -58,7 +58,10 @@ def enumerate_monitors() -> list[MonitorInfo]:
     except ImportError as exc:  # pragma: no cover
         raise RuntimeError("mss package not installed") from exc
 
-    with mss.mss() as sct:
+    # ``mss.MSS`` is the platform-dispatching factory class since v10.2;
+    # the older ``mss.mss()`` helper is deprecated and emits a warning
+    # on every call.
+    with mss.MSS() as sct:
         monitors = sct.monitors
         if len(monitors) < 2:
             return []
@@ -88,8 +91,8 @@ def refresh_monitor_records(monitors: list[MonitorInfo] | None = None) -> list[M
 
 
 def get_mss_grabber() -> Any:  # pragma: no cover - thin alias
-    """Return a fresh ``mss.mss()`` grabber. Wrapped for tests to patch."""
+    """Return a fresh ``mss.MSS()`` grabber. Wrapped for tests to patch."""
 
     import mss
 
-    return mss.mss()
+    return mss.MSS()

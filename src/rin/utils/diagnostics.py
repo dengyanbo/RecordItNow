@@ -124,12 +124,12 @@ def _monitor_summary() -> list[dict[str, int]]:
     """
 
     try:
-        from mss import mss  # type: ignore[import-untyped]
+        from mss import MSS  # type: ignore[import-untyped]
     except Exception as exc:  # pragma: no cover - mss is required at runtime
         log.warning(f"mss not available for monitor enumeration: {exc}")
         return []
     try:
-        with mss() as sct:
+        with MSS() as sct:
             # Index 0 is the union of all monitors; drop it.
             return [
                 {"w": m["width"], "h": m["height"], "x": m["left"], "y": m["top"]}
