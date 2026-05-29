@@ -58,3 +58,6 @@ chroma/
 dist/RIN/
 dist/RIN-*.zip
 build/RIN/
+
+# Allow our committed PyInstaller spec (build artefacts ignored above)
+!/scripts/RIN.spec
