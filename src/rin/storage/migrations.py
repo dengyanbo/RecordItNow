@@ -111,6 +111,26 @@ MIGRATIONS: list[tuple[int, str | Callable[[Engine], None]]] = [
     (2, _add_capture_thumbnail_path),
     # v0.4.0: report full-text search index backed by report_text + FTS5.
     (3, _migrate_reports_fts),
+    (
+        4,
+        """
+        CREATE TABLE IF NOT EXISTS poi_candidates (
+            id                    INTEGER PRIMARY KEY,
+            suggested_name        VARCHAR(256) NOT NULL,
+            kind                  VARCHAR(16)  NOT NULL,
+            description           TEXT,
+            evidence_capture_ids  TEXT         NOT NULL,
+            score                 REAL         NOT NULL DEFAULT 0.0,
+            status                VARCHAR(16)  NOT NULL DEFAULT 'pending',
+            suggested_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            decided_at            DATETIME,
+            decided_by            VARCHAR(32)
+        );
+        CREATE INDEX IF NOT EXISTS ix_poi_candidates_suggested_name ON poi_candidates (suggested_name);
+        CREATE INDEX IF NOT EXISTS ix_poi_candidates_status         ON poi_candidates (status);
+        CREATE INDEX IF NOT EXISTS ix_poi_candidates_suggested_at   ON poi_candidates (suggested_at);
+        """,
+    ),
 ]
 
 CURRENT_VERSION = max((m[0] for m in MIGRATIONS), default=0)

@@ -106,6 +106,7 @@ class SettingsDialog(QDialog):
         ("Working hours", "clock",     "When background analysis is allowed to run."),
         ("Analysis",      "lightbulb", "Choose OCR languages, Whisper size, and your LLM provider."),
         ("Skills",        "lightbulb", "Plugins that categorize captures into buckets."),
+        ("Topics & PoIs", "lightbulb", "Track points of interest — what you want grouped + summarised."),
         ("Reports",       "document",  "How and when daily/weekly summaries are produced."),
         ("Capture",       "mic",       "Audio devices, recording details, and voice quick-notes."),
         ("Privacy",       "dismiss",   "Apps that should never be captured or analyzed."),
@@ -153,6 +154,7 @@ class SettingsDialog(QDialog):
         self._build_working_hours_tab()
         self._build_analysis_tab()
         self._build_skills_tab()
+        self._build_topics_pois_tab()
         self._build_reports_tab()
         self._build_capture_tab()
         self._build_privacy_tab()
@@ -756,6 +758,16 @@ class SettingsDialog(QDialog):
         except (AttributeError, OSError) as exc:
             log.warning(f"os.startfile failed for {path}: {exc}")
 
+    def _build_topics_pois_tab(self) -> None:
+        from .poi_tab import TopicsAndPoIsTab
+
+        page = TopicsAndPoIsTab(self._config)
+        page.pois_changed.connect(
+            self._mark_dirty if hasattr(self, "_mark_dirty") else lambda: None
+        )
+        self._poi_tab = page
+        self._add_page(page)
+
     def _build_reports_tab(self) -> None:
         page = QWidget()
         form = self._form()
@@ -1297,6 +1309,8 @@ class SettingsDialog(QDialog):
         self._density_combo.setCurrentText(c.ui.density)
 
     def _on_save(self) -> None:
+        if hasattr(self, "_poi_tab"):
+            self._poi_tab.commit_to_config()
         self._apply_form_to_config()
         self._config.save()
         log.info("Settings saved")

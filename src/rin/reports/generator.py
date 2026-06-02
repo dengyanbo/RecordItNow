@@ -14,11 +14,23 @@ from ..llm import make_provider
 from ..llm.base import LLMError, Provider, ProviderUnavailable
 from ..paths import reports_dir
 from ..storage import session
-from ..storage.models import Analysis, Capture, Report, ReportText
+from ..storage.models import (
+    Analysis,
+    Bucket,
+    Capture,
+    CaptureBucket,
+    Report,
+    ReportText,
+)
 from ..utils.logging import get_logger
 from .integrations.base import CalendarEvent
 from .integrations.factory import make_calendar_provider
-from .templates import FALLBACK_REPORT_TEMPLATE, LLM_PROMPT_TEMPLATE
+from .templates import (
+    FALLBACK_REPORT_TEMPLATE,
+    LLM_PROMPT_TEMPLATE,
+    POI_GROUPED_LLM_PROMPT,
+    POI_GROUPED_REPORT_TEMPLATE,
+)
 
 log = get_logger(__name__)
 
@@ -40,6 +52,28 @@ class CaptureItem:
     duration_ms: int | None
     monitor_count: int
     summary: str | None = None
+
+
+@dataclass
+class PoIReportSection:
+    """One per-topic section of a PoI-grouped report."""
+
+    bucket_id: int
+    title: str
+    status_change: str | None
+    captures: list[CaptureItem]
+    archive_path: str | None
+
+
+def _capture_item_from_capture(capture: Capture) -> CaptureItem:
+    return CaptureItem(
+        id=capture.id,
+        kind=capture.kind,
+        started_at=capture.started_at,
+        duration_ms=capture.duration_ms,
+        monitor_count=len(capture.files),
+        summary=(capture.analyses[-1].summary if capture.analyses else None),
+    )
 
 
 @dataclass
@@ -76,21 +110,94 @@ def list_captures_for_period(period: ReportPeriod) -> list[CaptureItem]:
             s.scalars(
                 select(Capture)
                 .where(Capture.started_at >= period.start, Capture.started_at < period.end)
-                .order_by(Capture.started_at.asc())
+                .order_by(Capture.started_at.asc(), Capture.id.asc())
                 .options(selectinload(Capture.analyses), selectinload(Capture.files))
-            ).unique().all()
-        )
-        return [
-            CaptureItem(
-                id=c.id,
-                kind=c.kind,
-                started_at=c.started_at,
-                duration_ms=c.duration_ms,
-                monitor_count=len(c.files),
-                summary=(c.analyses[-1].summary if c.analyses else None),
             )
-            for c in rows
-        ]
+            .unique()
+            .all()
+        )
+    return [_capture_item_from_capture(capture) for capture in rows]
+
+
+def _bucket_status_change(bucket: Bucket, period: ReportPeriod) -> str | None:
+    opened_in_period = period.start <= bucket.opened_at < period.end
+    closed_in_period = (
+        bucket.closed_at is not None and period.start <= bucket.closed_at < period.end
+    )
+    if opened_in_period and closed_in_period:
+        return "opened and archived in period"
+    if opened_in_period:
+        return "opened in period"
+    if closed_in_period:
+        return "archived in period"
+    return None
+
+
+def list_poi_sections_for_period(period: ReportPeriod) -> list[PoIReportSection]:
+    """Load every bucket that touched the period.
+
+    A bucket is considered touched when it has at least one linked capture in the
+    report window. Sections are sorted by ``bucket.opened_at`` ascending.
+    """
+
+    with session() as s:
+        rows = s.execute(
+            select(Bucket, Capture)
+            .join(CaptureBucket, CaptureBucket.bucket_id == Bucket.id)
+            .join(Capture, Capture.id == CaptureBucket.capture_id)
+            .where(Capture.started_at >= period.start, Capture.started_at < period.end)
+            .order_by(
+                Bucket.opened_at.asc(),
+                Bucket.id.asc(),
+                Capture.started_at.asc(),
+                Capture.id.asc(),
+            )
+            .options(selectinload(Capture.analyses), selectinload(Capture.files))
+        ).all()
+
+    sections_by_bucket: dict[int, PoIReportSection] = {}
+    ordered_bucket_ids: list[int] = []
+    for bucket, capture in rows:
+        section = sections_by_bucket.get(bucket.id)
+        if section is None:
+            section = PoIReportSection(
+                bucket_id=bucket.id,
+                title=bucket.title,
+                status_change=_bucket_status_change(bucket, period),
+                captures=[],
+                archive_path=bucket.archive_path,
+            )
+            sections_by_bucket[bucket.id] = section
+            ordered_bucket_ids.append(bucket.id)
+        section.captures.append(_capture_item_from_capture(capture))
+
+    return [sections_by_bucket[bucket_id] for bucket_id in ordered_bucket_ids]
+
+
+def list_uncategorized_captures_for_period(period: ReportPeriod) -> list[CaptureItem]:
+    """Captures in period that have zero rows in ``capture_buckets``."""
+
+    with session() as s:
+        rows = (
+            s.scalars(
+                select(Capture)
+                .outerjoin(CaptureBucket, CaptureBucket.capture_id == Capture.id)
+                .where(Capture.started_at >= period.start, Capture.started_at < period.end)
+                .where(CaptureBucket.capture_id.is_(None))
+                .order_by(Capture.started_at.asc(), Capture.id.asc())
+                .options(selectinload(Capture.analyses), selectinload(Capture.files))
+            )
+            .unique()
+            .all()
+        )
+    return [_capture_item_from_capture(capture) for capture in rows]
+
+
+def _resolve_layout(cfg: RinConfig, sections: list[PoIReportSection]) -> str:
+    layout = cfg.reports.layout
+    if layout == "auto":
+        return "per_poi" if sections else "chronological"
+    return layout
 
 
 def generate_report(
@@ -104,13 +211,29 @@ def generate_report(
     """Render and persist a report. Returns the saved markdown path."""
 
     items = items if items is not None else list_captures_for_period(period)
+    poi_sections = (
+        list_poi_sections_for_period(period)
+        if cfg.reports.layout != "chronological"
+        else []
+    )
+    layout = _resolve_layout(cfg, poi_sections)
     if provider is None:
         try:
             provider = make_provider(cfg.llm)
         except ProviderUnavailable:
             provider = None
 
-    body = _render_body(period, items, provider=provider, cfg=cfg)
+    if layout == "per_poi":
+        uncategorized = list_uncategorized_captures_for_period(period)
+        body = _render_poi_grouped_body(
+            period,
+            items,
+            poi_sections,
+            uncategorized,
+            provider=provider,
+        )
+    else:
+        body = _render_body(period, items, provider=provider, cfg=cfg)
     out_dir = out_dir or reports_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
     filename = f"{period.kind}-{period.start.strftime('%Y%m%d')}.md"
@@ -214,6 +337,63 @@ def _render_body(
         return _render_offline(period, items)
 
 
+def _render_poi_grouped_body(
+    period: ReportPeriod,
+    items: list[CaptureItem],
+    poi_sections: list[PoIReportSection],
+    uncategorized: list[CaptureItem],
+    *,
+    provider: Provider | None,
+) -> str:
+    if provider is None or not items:
+        return _render_poi_grouped_offline(period, items, poi_sections, uncategorized)
+    prompt = POI_GROUPED_LLM_PROMPT.format(
+        kind=period.kind,
+        kind_title=period.kind.capitalize(),
+        period_start=period.start.strftime("%Y-%m-%d %H:%M"),
+        period_end=period.end.strftime("%Y-%m-%d %H:%M"),
+        total_captures=len(items),
+        topic_count=len(poi_sections),
+        material=_format_poi_material(poi_sections, uncategorized),
+    )
+    try:
+        return provider.analyze_text(
+            prompt,
+            system="You write concise markdown personal-activity reports.",
+        )
+    except LLMError as exc:
+        log.warning(f"Per-PoI report LLM call failed; using offline template: {exc}")
+        return _render_poi_grouped_offline(period, items, poi_sections, uncategorized)
+
+
+
+def _render_poi_grouped_offline(
+    period: ReportPeriod,
+    items: list[CaptureItem],
+    poi_sections: list[PoIReportSection],
+    uncategorized: list[CaptureItem],
+) -> str:
+    try:
+        from jinja2 import Template
+    except ImportError:  # pragma: no cover
+        return _render_poi_grouped_offline_plain(
+            period,
+            items,
+            poi_sections,
+            uncategorized,
+        )
+    tmpl = Template(POI_GROUPED_REPORT_TEMPLATE)
+    return tmpl.render(
+        kind=period.kind,
+        period_start=period.start,
+        period_end=period.end,
+        items=items,
+        poi_sections=poi_sections,
+        uncategorized=uncategorized,
+    )
+
+
+
 def _render_offline(period: ReportPeriod, items: list[CaptureItem]) -> str:
     try:
         from jinja2 import Template
@@ -240,6 +420,51 @@ def _render_offline_plain(period: ReportPeriod, items: list[CaptureItem]) -> str
         lines.append(
             f"- cap-{it.id} {it.kind} @ {it.started_at.isoformat()} — {it.summary or '(no summary)'}"
         )
+    return "\n".join(lines)
+
+
+
+def _render_poi_grouped_offline_plain(
+    period: ReportPeriod,
+    items: list[CaptureItem],
+    poi_sections: list[PoIReportSection],
+    uncategorized: list[CaptureItem],
+) -> str:
+    lines = [
+        f"# RIN Report — {period.kind.capitalize()}",
+        "",
+        f"**Period:** {period.start.isoformat()} → {period.end.isoformat()}",
+        "",
+        f"**Captures in range:** {len(items)}",
+        f"**Topics active in period:** {len(poi_sections)}",
+        "",
+    ]
+    for section in poi_sections:
+        lines.append(f"## {section.title}")
+        lines.append("")
+        if section.status_change:
+            lines.append(f"**Status:** {section.status_change}")
+        lines.append(f"**Captures in period:** {len(section.captures)}")
+        if section.archive_path:
+            lines.append(f"**Archive:** {section.archive_path}")
+        lines.append("")
+        for capture in section.captures:
+            lines.append(
+                f"- cap-{capture.id} @ {capture.started_at.isoformat()} — "
+                f"{capture.summary or '(no summary)'}"
+            )
+        lines.append("")
+    if uncategorized:
+        lines.append("## Uncategorized")
+        lines.append("")
+        for capture in uncategorized:
+            lines.append(
+                f"- cap-{capture.id} @ {capture.started_at.isoformat()} — "
+                f"{capture.summary or '(no summary)'}"
+            )
+    else:
+        lines.append("_All captures were categorized into a topic._")
+    lines.extend(["", "---", "", "_Generated offline (no LLM provider available)._"])
     return "\n".join(lines)
 
 
@@ -289,6 +514,38 @@ def _format_material(items: list[CaptureItem]) -> str:
             f"{(it.summary or '(no summary)')[:600]}"
         )
     return "\n".join(lines)
+
+
+
+def _format_poi_material(
+    poi_sections: list[PoIReportSection],
+    uncategorized: list[CaptureItem],
+) -> str:
+    lines = []
+    for section in poi_sections:
+        lines.append(f"TOPIC: {section.title}")
+        if section.status_change:
+            lines.append(f"  Status: {section.status_change}")
+        if section.archive_path:
+            lines.append(f"  Archive: {section.archive_path}")
+        lines.append("  Captures in period:")
+        for capture in section.captures:
+            lines.append(
+                f"    cap-{capture.id} @ "
+                f"{capture.started_at.strftime('%Y-%m-%d %H:%M')} — "
+                f"{(capture.summary or '(no summary)')[:600]}"
+            )
+        lines.append("")
+    if uncategorized:
+        lines.append("UNCATEGORIZED:")
+        for capture in uncategorized:
+            lines.append(
+                f"  cap-{capture.id} @ "
+                f"{capture.started_at.strftime('%Y-%m-%d %H:%M')} — "
+                f"{(capture.summary or '(no summary)')[:600]}"
+            )
+    return "\n".join(lines).strip()
+
 
 
 def _orm_analyses_for(_cap_id: int) -> list[Analysis]:  # pragma: no cover - convenience helper

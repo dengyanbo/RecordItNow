@@ -104,6 +104,26 @@ def run(*, smoke: bool = False) -> int:
         finally:
             learn_manager.stop()
 
+    topic_section = cfg.skills.config_for_skill("topic") or {}
+    has_topics = isinstance(topic_section, dict) and bool(topic_section.get("topics"))
+    if (
+        not smoke
+        and not cfg.skills.poi_wizard_seen
+        and not has_topics
+        and (cfg.first_run_completed or cfg.trigger.source != "unset")
+    ):
+        # Show the PoI wizard once after the user has the trigger configured.
+        # Skipped if first-run wizard hasn't completed yet (we want trigger
+        # configured first; the user can still re-invoke the PoI wizard
+        # later from Settings).
+        from .ui.poi_wizard import PoIWizard
+
+        try:
+            wiz = PoIWizard(cfg)
+            wiz.exec()
+        except Exception as exc:
+            log.warning(f"PoI wizard failed to launch: {exc}")
+
     tray = None
     if not smoke:
         from .ui import TrayApp

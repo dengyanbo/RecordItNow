@@ -2,6 +2,61 @@
 
 All notable changes to RIN — Record It Now.
 
+## v0.8.0 — PoI-centric Skills Workflow — turn passive captures into topic-organised reports
+
+PoIs ("Points of Interest") let RIN track the people, projects,
+customers, papers, and other named things that matter to you.
+v0.8.0 turns passive capture history into a topic-aware workflow:
+you can declare PoIs, discover candidates from recent activity,
+mention them explicitly in summaries, and have reports group the
+period around them when they are active.
+
+### New features
+- **Generic `topic` skill** — declarative PoIs via keywords / regex /
+  aliases / optional LLM judge. Configure `[skills.topic].topics` in
+  `config.toml`; no custom Python needed for the common "project /
+  customer / paper / person" workflow.
+- **PoI discovery service** — mines the last N days for candidate PoIs
+  from repeated regex IDs, frequent domains, recurring title-case
+  phrases, and an opt-in LLM batch. CLI: `python -m rin poi-discover
+  [--days N] [--use-llm] [--persist]`.
+- **PoI-aware summaries** — the final summary prompt now includes the
+  user's active topic list, so tracked PoIs are named explicitly when a
+  capture touches them.
+- **Per-PoI report layout** — new `reports.layout =
+  "auto"|"per_poi"|"chronological"` setting. `auto` flips to the
+  per-PoI layout whenever any topic was touched during the report
+  period, otherwise preserving the old chronological flow.
+- **Settings → "Topics & PoIs" tab** — manage tracked PoIs,
+  accept/reject discovery suggestions, and add topics manually from one
+  place.
+- **PoI onboarding wizard** — 4 pages: Welcome → Declare → Discovery →
+  Confirm. Auto-shown once after `FirstRunWizard`, re-invokable from
+  Settings.
+- **`poi_candidates` SQLite table** — migration v4, idempotent,
+  storing discovery suggestions separately from confirmed skill buckets.
+
+### Internals
+- `src/rin/skills/builtin/topic/` — new bundled skill.
+- `src/rin/poi/` — new subpackage for discovery + persistence.
+- `src/rin/ui/poi_tab.py` + `src/rin/ui/poi_wizard.py`.
+- `ReportsConfig.layout` and `SkillsConfig.poi_wizard_seen` fields.
+- `PoICandidate` SQLAlchemy model.
+
+### Tests
+**361 / 361 pass** (+55 since v0.7.1; 306 → 361). All green. Ruff
+clean.
+
+### Backwards compatibility
+Users with no PoIs configured see **zero behavior change**:
+chronological reports stay chronological, the wizard never appears,
+and the existing `support_ticket` skill remains the recommended choice
+for ticket-centric workflows.
+
+**Release artefact**: source zip auto-built by `release.yml` on tag
+push. The PyInstaller .exe bundle (~423 MB) will be built locally and
+uploaded as a follow-up, mirroring the v0.7.1 process.
+
 ## v0.7.1 — Polish + first real .exe asset
 
 Bug fixes, ergonomics, and the **first actually-built PyInstaller

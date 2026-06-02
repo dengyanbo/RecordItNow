@@ -11,6 +11,7 @@ Schema summary
 * ``report_text``     — cached markdown bodies for full-text report search.
 * ``tags`` + ``capture_tags`` — user / auto tagging (many-to-many).
 * ``buckets`` + ``capture_buckets`` — skill-driven categorization (v0.5+).
+* ``poi_candidates``  — discovery-suggested PoIs (v0.8+).
 * ``key_value``       — runtime state the user never directly edits.
 """
 from __future__ import annotations
@@ -200,6 +201,29 @@ class CaptureBucket(Base):
         ForeignKey("buckets.id", ondelete="CASCADE"), primary_key=True
     )
     created_at: Mapped[datetime] = mapped_column(default=func.now())
+
+
+class PoICandidate(Base):
+    """A discovery-suggested Point of Interest (v0.8+).
+
+    Surfaces to the user in Settings → "Topics & PoIs" → Suggested tab.
+    The user accepts (→ written into config.toml [skills.topic]),
+    rejects, or merges. Discovery is rerunnable and re-suggests pending
+    candidates; accepted/rejected ones are remembered so we don't pester.
+    """
+
+    __tablename__ = "poi_candidates"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    suggested_name: Mapped[str] = mapped_column(String(256), index=True)
+    kind: Mapped[str] = mapped_column(String(16))  # "regex" | "domain" | "phrase" | "llm"
+    description: Mapped[str | None] = mapped_column(Text, default=None)
+    evidence_capture_ids: Mapped[str] = mapped_column(Text)  # JSON list of ints
+    score: Mapped[float] = mapped_column(default=0.0)
+    status: Mapped[str] = mapped_column(String(16), default="pending")  # pending|accepted|rejected|merged
+    suggested_at: Mapped[datetime] = mapped_column(default=func.now(), index=True)
+    decided_at: Mapped[datetime | None] = mapped_column(default=None)
+    decided_by: Mapped[str | None] = mapped_column(String(32), default=None)  # "user" | "auto"
 
 
 class KeyValue(Base):

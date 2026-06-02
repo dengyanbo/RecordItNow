@@ -20,9 +20,11 @@ Each skill:
    "finished" (e.g. ticket resolved), the skill renders a Markdown
    archive summarising the whole journey.
 
-RIN ships with **`support_ticket`** (the tech-support example). Drop
-your own under `%LOCALAPPDATA%\RIN\skills\<name>\` to extend the
-system.
+Most users should start with the generic
+**[`topic`](#the-topic-skill-recommended-for-most-users)** skill or
+follow the [PoI guide](poi.md). RIN also ships with
+**`support_ticket`** (the tech-support example). Drop your own under
+`%LOCALAPPDATA%\RIN\skills\<name>\` to extend the system.
 
 ---
 
@@ -77,6 +79,63 @@ use_llm_for_archive = true
 # capture. Default keeps every match.
 only_first_match = false
 ```
+
+---
+
+## The `topic` skill (recommended for most users)
+
+If your work is organized around **topics** instead of rigid ticket IDs,
+start here. `topic` is the bundled "point of interest" tracker: you tell
+RIN which projects, customers, papers, people, or initiatives matter to
+you, and it groups matching captures into topic buckets automatically.
+
+Use `topic` when:
+
+- your work has recognizable names but not stable IDs,
+- you want a no-code setup in `config.toml`,
+- regex alone is not enough and an optional YES/NO LLM judge helps.
+
+Example config:
+
+```toml
+[skills]
+enabled = ["topic", "support_ticket"]
+
+[skills.topic]
+llm_judge_max_chars = 1200
+llm_judge_system_prompt = "You are a classifier. Reply only with YES or NO."
+
+[[skills.topic.topics]]
+name = "Platform migration"
+description = "JIRA-tracked migration work for the platform team"
+regex = ["JIRA-\\d+"]
+archive_after_days = 14
+closed_phrases = ["migration complete", "project closed"]
+
+[[skills.topic.topics]]
+name = "Project Atlas"
+description = "Internal codename for the Atlas customer rollout"
+keywords = ["atlas", "customer rollout"]
+aliases = ["atlas launch", "atlas workstream"]
+llm_judge = true
+archive_after_days = 21
+closed_phrases = ["project closed", "shipped to prod"]
+```
+
+How it behaves:
+
+1. **Regex first.** If a topic has `regex`, RIN checks those patterns
+   first against the capture summary, OCR text, and transcript.
+2. **Then keywords / aliases.** Simple case-insensitive substring
+   matching covers everyday references like `atlas` or `pkg`.
+3. **Then optional LLM judge.** If `llm_judge = true` and a provider is
+   available, RIN asks a narrow YES/NO question about that topic.
+4. **Archive when done or stale.** A topic closes immediately when a
+   configured `closed_phrases` substring appears, or after
+   `archive_after_days` with no new captures.
+
+This is the recommended bundled skill for most users because it stays
+fully declarative: no Python file, no custom packaging, just TOML.
 
 ---
 
@@ -238,6 +297,7 @@ RIN repository. Third-party skills are not.
 | Name | Source | What it does |
 |---|---|---|
 | `support_ticket` | `rin.skills.builtin.support_ticket` | Tech-support ticket IDs (ServiceNow / Salesforce / GitHub-style). Archives on `Status: Closed` or N-day inactivity. |
+| `topic` | `rin.skills.builtin.topic` | Generic topic tracker (keywords / regex / aliases / optional LLM judge). The right tool when your work isn't ID-anchored. |
 
 More bundled skills will follow over time — open a PR if you build one
 worth bundling.

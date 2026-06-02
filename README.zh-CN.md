@@ -2,7 +2,7 @@
 
 > **Languages:** [English](README.md) · **中文** · **开发或贡献？** 见 [`DEVELOPING.md`](DEVELOPING.md)
 
-[![tests](https://img.shields.io/badge/tests-306%20%2F%20306-brightgreen)](DEVELOPING.md#testing)
+[![tests](https://img.shields.io/badge/tests-361%20%2F%20361-brightgreen)](DEVELOPING.md#testing)
 [![python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](#要求)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D4)](#要求)
@@ -81,6 +81,7 @@
 | **LLM 后端** | GitHub Copilot CLI（默认，免 API key）· OpenAI · Azure OpenAI |
 | **分析** | 每小时后台任务，仅在非工作时间或 idle 时跑；OCR + Whisper + 视觉 LLM。语言可配置。 |
 | **Skills** | 可插拔归类。内置：`support_ticket`（按 ticket ID 归类，关闭后自动归档）。自定义 skill 放在 `%LOCALAPPDATA%\RIN\skills\` 即可。 |
+| **Topics & PoIs** | 将项目 / 客户 / 人物作为 PoI 跟踪；报告按 PoI 分组。 |
 | **报告** | 每日 / 每周 Markdown 报告，全文检索（FTS5），可导出 PDF / HTML，可选 Obsidian vault 同步写入。 |
 | **RAG 搜索** | 语义搜索 + RAG agent 带引用回答 |
 | **隐私** | 应用黑名单（按前台窗口跳过捕获）、暂停 / 定时暂停、可选 AES-256 磁盘加密（Windows DPAPI） |
@@ -136,8 +137,8 @@
 
 ## 项目状态
 
-- 当前版本：**v0.7.1**（2026-05-29 发布）
-- **306 / 306 pytest 通过** · ruff 清洁
+- 当前版本：**v0.8.0**（2026-06-02 发布）
+- **361 / 361 pytest 通过** · ruff 清洁
 - CI 在 Windows + Python 3.11 / 3.12 上绿
 - 完整发布历史：[`CHANGELOG.md`](CHANGELOG.md)
 - 想贡献或扩展？读 [`DEVELOPING.md`](DEVELOPING.md)

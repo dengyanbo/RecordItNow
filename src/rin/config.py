@@ -71,6 +71,11 @@ class ReportsConfig(BaseModel):
     calendar_provider: Literal["none", "outlook", "google"] = "none"
     # Surface this in Settings → Reports from ui/settings_dialog.py (owned by Agent D).
     obsidian_vault_path: str | None = None
+    # NEW — PoI-grouped layout selector (v0.8.0+).
+    # "auto"          → per_poi when ≥1 active topic bucket touched the period, else chronological
+    # "per_poi"       → always per_poi (uncategorized captures roll up at the bottom)
+    # "chronological" → always chronological (the v0.7 behaviour)
+    layout: Literal["auto", "per_poi", "chronological"] = "auto"
 
 
 class StorageConfig(BaseModel):
@@ -141,6 +146,7 @@ class SkillsConfig(BaseModel):
     # active buckets for closure (hours). Lower = faster archive but
     # slightly more I/O. 6h is a sane balance.
     closure_check_hours: int = 6
+    poi_wizard_seen: bool = False
 
     model_config = {"extra": "allow"}
 

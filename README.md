@@ -2,7 +2,7 @@
 
 > **Languages:** **English** · [中文](README.zh-CN.md) · **Building or contributing?** see [`DEVELOPING.md`](DEVELOPING.md)
 
-[![tests](https://img.shields.io/badge/tests-306%20%2F%20306-brightgreen)](DEVELOPING.md#testing)
+[![tests](https://img.shields.io/badge/tests-361%20%2F%20361-brightgreen)](DEVELOPING.md#testing)
 [![python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](#requirements)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D4)](#requirements)
@@ -82,6 +82,7 @@ After install:
 | **LLM providers** | GitHub Copilot CLI (default, no API key) · OpenAI · Azure OpenAI |
 | **Analysis** | Hourly background job gated by working hours OR idle, with OCR + Whisper + vision LLM. Languages configurable. |
 | **Skills** | Pluggable categorization. Bundled: `support_ticket` (groups by ticket ID, archives on resolution). Drop your own under `%LOCALAPPDATA%\RIN\skills\`. |
+| **Topics & PoIs** | Track projects/customers/people as Points of Interest; reports grouped per PoI |
 | **Reports** | Daily / weekly Markdown with FTS5 search across history. Export PDF / HTML. Optional Obsidian vault target with YAML front-matter. |
 | **RAG search** | Semantic search across captures with cited answers from a RAG agent |
 | **Privacy** | App blacklist (skip-capture by foreground window), pause toggle + timed pauses, optional AES-256 at-rest encryption via Windows DPAPI |
@@ -137,8 +138,8 @@ Want sequence diagrams + per-module rationale? See
 
 ## Project status
 
-- Current: **v0.7.1** (released 2026-05-29)
-- **306 / 306 pytest** pass · ruff clean
+- Current: **v0.8.0** (released 2026-06-02)
+- **361 / 361 pytest** pass · ruff clean
 - CI green on Python 3.11 + 3.12 on `windows-latest`
 - Full release history: [`CHANGELOG.md`](CHANGELOG.md)
 - Want to contribute or extend? Read [`DEVELOPING.md`](DEVELOPING.md)

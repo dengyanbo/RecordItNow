@@ -44,12 +44,16 @@
 | `src/rin/input/` | Gesture state machine + Qt recognizer + pynput / hidapi listeners + learn-mode + reserved-key warnings. |
 | `src/rin/llm/` | `Provider` ABC + `copilot_cli` / `openai` / `azure` providers + `factory.make_provider(cfg)`. |
 | `src/rin/analysis/` | OCR (rapidocr) + Whisper (faster-whisper) + keyframe extraction + summarizer + scheduler. |
-| `src/rin/skills/` | Pluggable categorization. `Skill` ABC + registry + pipeline + `BucketScheduler`. Bundled skill: `support_ticket`. |
+| `src/rin/skills/` | Pluggable categorization. `Skill` ABC + registry + pipeline + `BucketScheduler`. Bundled skills: `support_ticket`, `topic`. |
+| `src/rin/skills/builtin/topic/` | Bundled generic PoI skill: declarative topics, keyword / regex / alias matching, optional LLM judge, auto-archive rules. |
+| `src/rin/poi/` | PoI discovery + candidate persistence. Mines recent captures for suggested topics and writes to `poi_candidates`. |
+| `src/rin/ui/poi_tab.py` | Settings tab for tracked PoIs + candidate accept/reject + manual add/edit/archive actions. |
+| `src/rin/ui/poi_wizard.py` | First-run / on-demand PoI onboarding wizard: Welcome → Declare → Discovery → Confirm. |
 | `src/rin/rag/` | sentence-transformers embedder + ChromaDB indexer + search + Q&A agent. |
 | `src/rin/reports/` | Daily / weekly Markdown generator + APScheduler + FTS5 search + PDF/HTML export + Outlook/Google Calendar integrations. |
-| `src/rin/ui/` | PySide6 tray + Settings (9 tabs) + Reports + Search + first-run Wizard + Spinner/BusyOverlay progress widgets. `theme.py` + `style.py` own the QSS design tokens. |
+| `src/rin/ui/` | PySide6 tray + Settings shell/tabs + Reports + Search + first-run Wizard + Spinner/BusyOverlay progress widgets. `theme.py` + `style.py` own the QSS design tokens. |
 | `src/rin/utils/` | Logging (loguru), autostart, panic hotkey, encryption (AES-256-GCM + DPAPI), thumbnail (PIL), data export, telemetry (Sentry), diagnostics, platform_compat dispatcher. |
-| `tests/` | 306 tests, all green. Run with `pytest -q`. Layout mirrors `src/rin/`. |
+| `tests/` | 361 tests, all green. Run with `pytest -q`. Layout mirrors `src/rin/`. |
 | `scripts/` | `install.ps1` (user installer), `build_release.ps1` (source zip), `build_exe.ps1` + `RIN.spec` (PyInstaller .exe), `prefetch_models.py`, `dev_run.ps1`, `capture_ui_screenshots.py`. |
 
 ## Data flow — one tap to a searchable answer
@@ -78,7 +82,9 @@
    ↓
 10. For each: RapidOCR extracts text → Copilot CLI vision summary
     ↓
-11. build_summary asks LLM for a final paragraph
+11. build_summary asks LLM for a final paragraph; active topic names
+    from `[skills.topic].topics` are prepended so tracked PoIs are
+    called out explicitly when present
     ↓
 12. SQLAlchemy commits Analysis row + flips status to "analyzed"
     ↓
@@ -87,23 +93,36 @@
 14. skills.pipeline.classify_capture runs every enabled Skill.detect()
     → upserts Bucket rows + inserts capture_bucket junction rows
 
+   (later, on demand from Settings or the PoI wizard)
+
+15. rin.poi.discovery.discover() mines recent analyses
+    → repeated regex IDs / domains / title-case phrases (+ optional LLM
+      batch) become `poi_candidates`
+16. User accepts a candidate in Settings → it is copied into
+    `[skills.topic].topics`; reject / merge decisions stay in
+    `poi_candidates`
+
    (later, BucketScheduler tick — default every 6h)
 
-15. For each active bucket: skill.should_close(...)
+17. Report generation consults `cfg.reports.layout`
+    → `chronological` keeps the old flow
+    → `per_poi` groups by tracked topic
+    → `auto` flips to per-PoI when any topic touched the period
+18. For each active bucket: skill.should_close(...)
     → if True: skill.render_archive(...) → reports/archives/<skill>/<key>.md
     → status='archived', closed_at + archive_path set
 
    (later, user opens Search & Ask)
 
-16. User types question
+19. User types question
     ↓
-17. RAGAgent.ask embeds question → top-k ChromaDB hits
+20. RAGAgent.ask embeds question → top-k ChromaDB hits
     ↓
-18. Constructs [SYSTEM]/[USER] prompt with snippets
+21. Constructs [SYSTEM]/[USER] prompt with snippets
     ↓
-19. Copilot CLI generates answer with cap-N citations
+22. Copilot CLI generates answer with cap-N citations
     ↓
-20. SearchWindow renders chat bubble with citation strip
+23. SearchWindow renders chat bubble with citation strip
 ```
 
 For sequence diagrams + the analysis pipeline's deeper "why", see
@@ -134,6 +153,11 @@ Why things are the way they are. Verify each at the cited file.
 | **`TrayApp._prewarm_menu()` paid at boot** | Cold `sizeHint()` on an emoji-loaded `QMenu` is ~470 ms; pre-warming 250 ms after `tray.show()` drops first-click to ~4 ms. Reviewed in v0.7.1 (R21). | `src/rin/ui/tray.py` |
 | **Pause moved from tray menu to Settings → Privacy** | The tray was getting cluttered; pause sits naturally next to privacy blacklist + encryption-at-rest. Panic hotkey remains. v0.7.1 (R23). | `src/rin/ui/settings_dialog.py:_build_privacy_tab` |
 | **Bilingual READMEs (en / zh)** | Author + many users are bilingual Chinese / English | `README.md`, `README.zh-CN.md` |
+| **R24 — New bundled `topic` skill instead of refactoring `support_ticket`** | Two different use cases — IDs are precise (regex), topics are fuzzy (keywords/LLM). Keep both. | `src/rin/skills/builtin/topic/`, `src/rin/skills/builtin/support_ticket/`, `docs/skills.md` |
+| **R25 — `poi_candidates` as a separate table (not part of `buckets`)** | Buckets are confirmed by skills via `detect()`; candidates are suggestions awaiting human decision. Mixing would conflate states. | `src/rin/storage/models.py`, `src/rin/storage/migrations.py`, `src/rin/poi/` |
+| **R26 — Discovery is on-demand, not in a scheduler** | Avoids unbidden LLM cost; user explicitly triggers via Settings or wizard. | `src/rin/poi/discovery.py`, `src/rin/ui/poi_tab.py`, `src/rin/ui/poi_wizard.py` |
+| **R27 — `reports.layout = "auto"` default** | Backwards-compatible: users with no PoIs see no change; users with PoIs get the per-topic layout for free. | `src/rin/config.py`, `src/rin/reports/` |
+| **R28 — PoI wizard auto-shown ONCE after FirstRunWizard** | Avoids nag-loop; `poi_wizard_seen=True` flag persisted; user can re-invoke from Settings. | `src/rin/app.py`, `src/rin/config.py`, `src/rin/ui/poi_wizard.py` |
 
 ## Common tasks
 
@@ -188,9 +212,17 @@ the canonical example.
 2. Implement `detect(ctx)` (mandatory), `should_close(...)`
    (optional), `render_archive(...)` (optional — default is a
    chronological dump).
-3. Add tests under `tests/test_skill_<name>.py`. Follow
+3. If the skill is declarative / user-configurable, mirror the `topic`
+   skill: keep the matching logic in `src/rin/skills/builtin/topic/`
+   and any discovery / persistence helpers in a sibling package (for
+   v0.8.0 that is `src/rin/poi/`). `support_ticket` is still the
+   smallest regex-first example; `topic` is the better reference when
+   you need keywords, aliases, optional LLM judging, or richer UI.
+4. Add tests under `tests/test_skill_<name>.py`. Follow
    `tests/test_skills_base.py` for the patterns.
-4. Document the skill in `docs/skills.md`.
+5. Document the skill in `docs/skills.md`; add a focused user guide in
+   `docs/` too if the concept is end-user facing (as `topic` did with
+   `docs/poi.md`).
 
 ### Change the look / theme
 
@@ -234,18 +266,23 @@ gh release upload vX.Y.Z dist\RIN-vX.Y.Z-windows-exe.zip
 
 | Term | Meaning |
 | --- | --- |
-| **capture** | A row in the `captures` table — one user-triggered event (screenshot or recording) with its files |
-| **cap-N** | A capture identifier rendered in RAG / archive citations (`cap-7` = `captures.id == 7`) |
 | **analysis** | The `analyses` table row containing OCR + LLM-generated summary of a capture |
-| **trigger** | The user's bound input — keyboard key, mouse button, or HID / Bluetooth button |
-| **gate** | The conditional that lets the hourly analysis tick run: outside working hours OR idle |
-| **provider** | An LLM backend implementing `rin.llm.base.Provider`. Three ship today: copilot_cli (default), openai, azure |
-| **skill** | A drop-in plugin under `rin.skills.builtin.*` or `%LOCALAPPDATA%\RIN\skills\<name>\` that categorizes captures into buckets |
-| **bucket** | A row in the `buckets` table created by a skill's `detect()`; groups N captures under one `(skill_name, key)` |
 | **archive** | A Markdown file under `reports/archives/<skill>/<key>.md` produced when a bucket closes |
-| **SkipInfo** | The `(reason, detail)` record `CaptureService.last_skip()` exposes after a falsy return so the tray can render context-aware toasts |
-| **role** | A Qt property on a widget that opts it into stylesheet rules. Examples: `primary`, `flat`, `chip`, `field-label`, `caption`, `nav`, `cards`, `empty-state-title`, `user-bubble`, `agent-bubble`, `search`, `search-attached`, `divider-vert` |
+| **bucket** | A row in the `buckets` table created by a skill's `detect()`; groups N captures under one `(skill_name, key)` |
+| **candidate** | A PoI suggestion produced by the discovery service. Lives in the `poi_candidates` table with `status=pending|accepted|rejected|merged`. |
+| **cap-N** | A capture identifier rendered in RAG / archive citations (`cap-7` = `captures.id == 7`) |
+| **capture** | A row in the `captures` table — one user-triggered event (screenshot or recording) with its files |
 | **density** | `comfortable` (default) vs `compact` — picks padding values in `palette_to_qss` |
+| **discovery** | On-demand mining of recent captures for candidate PoIs. Runs from `rin.poi.discovery.discover()` or `python -m rin poi-discover`. |
+| **gate** | The conditional that lets the hourly analysis tick run: outside working hours OR idle |
+| **judge** | Optional LLM tier in `topic.detect()` (`llm_judge=true`) that asks the configured provider whether a capture is about a given topic. Cost-controlled by `llm_judge_max_chars`. |
+| **PoI** | Point of Interest. A topic, project, customer, or entity the user wants captures grouped by. |
+| **provider** | An LLM backend implementing `rin.llm.base.Provider`. Three ship today: copilot_cli (default), openai, azure |
+| **role** | A Qt property on a widget that opts it into stylesheet rules. Examples: `primary`, `flat`, `chip`, `field-label`, `caption`, `nav`, `cards`, `empty-state-title`, `user-bubble`, `agent-bubble`, `search`, `search-attached`, `divider-vert` |
+| **skill** | A drop-in plugin under `rin.skills.builtin.*` or `%LOCALAPPDATA%\RIN\skills\<name>\` that categorizes captures into buckets |
+| **SkipInfo** | The `(reason, detail)` record `CaptureService.last_skip()` exposes after a falsy return so the tray can render context-aware toasts |
+| **topic** | RIN's generic PoI skill (`rin.skills.builtin.topic`). Declarative; reads `[skills.topic].topics` from `config.toml`. |
+| **trigger** | The user's bound input — keyboard key, mouse button, or HID / Bluetooth button |
 
 ## Files an agent should rarely touch
 
@@ -309,7 +346,7 @@ Optional extras (declared in `pyproject.toml`):
 ## Testing
 
 ```powershell
-pytest -q                              # all 306 tests, ~60-90 s on a warm cache
+pytest -q                              # all 361 tests, ~60-90 s on a warm cache
 pytest -q --cov=rin --cov-report=term-missing  # with coverage
 pytest tests/test_perf_*.py            # pytest-benchmark suite
 ruff check src tests scripts
@@ -365,6 +402,21 @@ After installing, walk this sequence in order:
     python -c "from rin.utils.autostart import enable, default_command; enable(default_command())"
     ```
     Sign out + in. RIN starts automatically. Disable with `disable()`.
+15. **Topics & PoIs tab.** Open Settings → **Topics & PoIs** → verify
+    the tab loads without errors.
+16. **Manual PoI.** Add a PoI via the form → **Save** → verify
+    `config.toml` now contains the new `[[skills.topic.topics]]` entry.
+17. **Discover now.** From the same tab click *Discover now…* → verify
+    candidates appear, or a clear *no suggestions* state appears when
+    the DB is empty.
+18. **PoI match.** Trigger a capture that mentions your manual PoI →
+    after analysis, verify the bucket is created.
+19. **Per-PoI report.** Generate a daily report → verify it contains a
+    `## <PoI name>` section when a topic was touched, or falls back to
+    chronological layout when none were.
+20. **CLI discovery.** Run `python -m rin poi-discover --days 30` →
+    verify it prints candidates (or a no-suggestions message) without
+    crashing.
 
 ## Building a release
 

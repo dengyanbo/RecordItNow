@@ -40,6 +40,7 @@ def build_summary(
     image_analyses: list[ImageAnalysis] | None = None,
     video_analyses: list[VideoAnalysis] | None = None,
     provider: Provider | None = None,
+    active_pois: list[str] | None = None,
 ) -> str:
     """Ask the LLM (or fall back) to produce a one-paragraph rollup."""
 
@@ -53,6 +54,8 @@ def build_summary(
         for s in va.frame_summaries:
             text_chunks.append(f"  • {s}")
         if va.transcript.text:
+            # Truncated to 1000 chars to bound LLM input cost. classify_capture()
+            # below receives the FULL transcript so PoI skills still see everything.
             text_chunks.append(f"Transcript: {va.transcript.text[:1000]}")
         if va.ocr_text:
             text_chunks.append(f"OCR: {va.ocr_text[:500]}")
@@ -64,7 +67,15 @@ def build_summary(
     if provider is None:
         return _fallback_summary(capture, joined)
 
-    prompt = (
+    tracked_topics = [poi.strip() for poi in (active_pois or []) if poi and poi.strip()]
+    prompt = ""
+    if tracked_topics:
+        prompt += (
+            "The user is currently tracking these topics: "
+            f"{', '.join(tracked_topics)}. If any of these are visible, mention "
+            "them explicitly.\n"
+        )
+    prompt += (
         "You are summarizing a user's screen activity for a personal journal. "
         "Produce a 2-4 sentence paragraph capturing what the user was doing, the "
         "key apps or topics, and any noteworthy items. Do not include filler "
@@ -106,6 +117,7 @@ def analyze_capture(
     image_analyses: list[ImageAnalysis] = []
     video_analyses: list[VideoAnalysis] = []
     transcript_obj: Transcript | None = None
+    active_pois: list[str] = []
 
     if kind == "screenshot":
         for f in files:
@@ -119,6 +131,12 @@ def analyze_capture(
                 if va.transcript.text:
                     transcript_obj = va.transcript
 
+    try:
+        active_pois = _active_topic_names(cfg)
+    except Exception as exc:
+        log.warning(f"Failed to load active topics from config: {exc}")
+        active_pois = []
+
     with session() as s:
         cap = s.get(Capture, capture_id)
         if cap is None:
@@ -128,6 +146,7 @@ def analyze_capture(
             image_analyses=image_analyses,
             video_analyses=video_analyses,
             provider=provider,
+            active_pois=active_pois,
         )
         all_ocr = "\n\n".join(
             [ia.text for ia in image_analyses if ia.text]
@@ -268,3 +287,20 @@ def _push_to_index(
         )
     except Exception as exc:
         log.warning(f"Vector store upsert failed for capture {capture_id}: {exc}")
+
+
+def _active_topic_names(cfg: RinConfig) -> list[str]:
+    """Return the names of every topic in [skills.topic] when the
+    topic skill is enabled. Empty list if disabled or not configured.
+    """
+    if "topic" not in (cfg.skills.enabled or []):
+        return []
+    raw = cfg.skills.config_for_skill("topic") or {}
+    topics = raw.get("topics") or []
+    names: list[str] = []
+    for t in topics:
+        if isinstance(t, dict):
+            name = t.get("name")
+            if isinstance(name, str) and name.strip():
+                names.append(name.strip())
+    return names
