@@ -9,7 +9,11 @@ from PyInstaller.utils.hooks import collect_all, collect_submodules, copy_metada
 SPEC_DIR = Path(globals().get("SPECPATH", Path.cwd() / "scripts")).resolve()
 PROJECT_ROOT = SPEC_DIR.parent
 SRC_ROOT = PROJECT_ROOT / "src"
-MAIN_SCRIPT = SRC_ROOT / "rin" / "__main__.py"
+# Entry script lives OUTSIDE the rin package so it can use clean
+# absolute imports. PyInstaller's bootloader runs whatever Analysis
+# points at without setting __package__, so an in-package __main__.py
+# entry breaks all relative imports. See scripts/rin_entry.py.
+MAIN_SCRIPT = SPEC_DIR / "rin_entry.py"
 PYSIDE_PLUGIN_ROOT = Path(PySide6.__file__).resolve().parent / "plugins"
 
 chromadb_datas, chromadb_binaries, chromadb_hiddenimports = collect_all(
@@ -118,9 +122,12 @@ hiddenimports = sorted(
         + rapidocr_hiddenimports
         + mss_hiddenimports
         + pynput_hiddenimports
+        + collect_submodules("rin")
         + collect_submodules("rin.skills.builtin")
         + collect_submodules("rin.llm")
         + [
+            "rin",
+            "rin.__main__",
             "chromadb",
             "sentence_transformers",
             "faster_whisper",

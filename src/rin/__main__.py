@@ -1,4 +1,15 @@
-"""Entry point for ``python -m rin``."""
+"""Entry point for ``python -m rin``.
+
+Uses relative imports — the canonical style for a package's
+``__main__`` module. Python sets ``__package__='rin'`` when invoking
+via ``python -m rin``, so the relative imports resolve cleanly.
+
+For the standalone PyInstaller .exe bundle we use a separate entry
+script (``scripts/rin_entry.py``) that does ``from rin.__main__
+import main``. PyInstaller bundles this module via the spec's
+``collect_submodules('rin')`` plumbing, so the absolute import
+resolves through the PYZ archive at runtime.
+"""
 from __future__ import annotations
 
 import argparse

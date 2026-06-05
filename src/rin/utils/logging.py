@@ -17,22 +17,30 @@ _CONFIGURED = False
 
 
 def setup_logging(level: str = "INFO", *, log_file: Path | None = None) -> None:
-    """Initialize loguru sinks. Idempotent."""
+    """Initialize loguru sinks. Idempotent.
+
+    Skips the stderr sink when ``sys.stderr is None`` — this happens in
+    PyInstaller's windowed-mode bundle (``console=False``) because the
+    runw bootloader detaches stdio. Without this guard ``logger.add``
+    raises ``TypeError: Cannot log to objects of type 'NoneType'`` and
+    crashes the .exe before the first log line.
+    """
 
     global _CONFIGURED
     if _CONFIGURED:
         return
 
     logger.remove()
-    logger.add(
-        sys.stderr,
-        level=level,
-        format=(
-            "<green>{time:HH:mm:ss}</green> | "
-            "<level>{level:<8}</level> | "
-            "<cyan>{name}</cyan> - <level>{message}</level>"
-        ),
-    )
+    if sys.stderr is not None:
+        logger.add(
+            sys.stderr,
+            level=level,
+            format=(
+                "<green>{time:HH:mm:ss}</green> | "
+                "<level>{level:<8}</level> | "
+                "<cyan>{name}</cyan> - <level>{message}</level>"
+            ),
+        )
     file_path = log_file or (paths.logs_dir() / "rin.log")
     logger.add(
         file_path,
