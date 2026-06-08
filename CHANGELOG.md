@@ -97,6 +97,23 @@ uploaded as a follow-up, mirroring the v0.7.1 process.
   are never accidentally tagged `Case` / `Task`.
 - 5 new tests in `tests/test_skills_base.py` (366 / 366 pass total).
 
+### Post-release: single-instance enforcement (2026-06-08)
+- Only one RIN instance per user can run at a time. A second launch
+  (double-clicked shortcut, autostart re-fire, etc.) detects the
+  existing instance via an OS-level exclusive lock on
+  `%LOCALAPPDATA%\RIN\.lock` and exits silently with a Windows
+  MessageBox: *"RIN is already running. Look for the RIN icon in your
+  system tray."*
+- The lock is auto-released by the OS when the process dies
+  (clean exit, crash, or kill) — no stale-lock cleanup needed.
+- `python -m rin --smoke` bypasses the gate so CI / smoke tests still
+  run alongside a live tray.
+- `RIN_SUPPRESS_DUP_DIALOG=1` skips the modal for unattended launchers
+  that prefer a silent exit.
+- New module `src/rin/utils/single_instance.py` (msvcrt on Windows,
+  fcntl on POSIX). 5 new tests in `tests/test_single_instance.py`
+  (371 / 371 pass total).
+
 ## v0.7.1 — Polish + first real .exe asset
 
 Bug fixes, ergonomics, and the **first actually-built PyInstaller

@@ -20,6 +20,7 @@ from .config import RinConfig
 from .llm import make_provider
 from .llm.base import ProviderUnavailable
 from .poi import discover, persist_candidates
+from .utils import single_instance
 from .utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -99,7 +100,18 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "poi-discover":
         return _cmd_poi_discover(args)
-    return run(smoke=args.smoke)
+
+    # Single-instance gate: a second RIN tray would duplicate icons,
+    # global hotkey listeners, and SQLite writers. Skipped under
+    # --smoke so smoke tests never collide with a running tray.
+    if not args.smoke and not single_instance.acquire():
+        single_instance.notify_already_running()
+        return 0
+
+    try:
+        return run(smoke=args.smoke)
+    finally:
+        single_instance.release()
 
 
 if __name__ == "__main__":

@@ -51,6 +51,7 @@ After install:
 - **Launch:** Start Menu → type `RIN`, or run `%LOCALAPPDATA%\Programs\RIN\RIN.exe`.
 - **Data lives under:** `%LOCALAPPDATA%\RIN\` (config, captures, reports, vector index, logs).
 - **Quit:** tray menu → *Quit*, or **Ctrl+Alt+Shift+P** to pause.
+- **One process at a time:** a second launch (double-clicked shortcut, autostart re-fire) detects the running instance and exits with a tray-pointer popup — no duplicate hotkeys or DB writers.
 
 ---
 
