@@ -52,8 +52,8 @@
 | `src/rin/rag/` | sentence-transformers embedder + ChromaDB indexer + search + Q&A agent. |
 | `src/rin/reports/` | Daily / weekly Markdown generator + APScheduler + FTS5 search + PDF/HTML export + Outlook/Google Calendar integrations. |
 | `src/rin/ui/` | PySide6 tray + Settings shell/tabs + Reports + Search + first-run Wizard + Spinner/BusyOverlay progress widgets. `theme.py` + `style.py` own the QSS design tokens. |
-| `src/rin/utils/` | Logging (loguru), autostart, panic hotkey, encryption (AES-256-GCM + DPAPI), thumbnail (PIL), data export, telemetry (Sentry), diagnostics, platform_compat dispatcher. |
-| `tests/` | 361 tests, all green. Run with `pytest -q`. Layout mirrors `src/rin/`. |
+| `src/rin/utils/` | Logging (loguru), autostart, panic hotkey, encryption (AES-256-GCM + DPAPI), thumbnail (PIL), data export, telemetry (Sentry), diagnostics, single-instance lock, platform_compat dispatcher. |
+| `tests/` | 371 tests, all green. Run with `pytest -q`. Layout mirrors `src/rin/`. |
 | `scripts/` | `install.ps1` (user installer), `build_release.ps1` (source zip), `build_exe.ps1` + `RIN.spec` (PyInstaller .exe), `prefetch_models.py`, `dev_run.ps1`, `capture_ui_screenshots.py`. |
 
 ## Data flow — one tap to a searchable answer
@@ -259,7 +259,7 @@ git tag -a vX.Y.Z -m "RIN vX.Y.Z"
 git push origin main vX.Y.Z
 
 # 6. (Optional) upload the .exe zip as an additional asset
-gh release upload vX.Y.Z dist\RIN-vX.Y.Z-windows-exe.zip
+gh release upload vX.Y.Z dist\RIN-vX.Y.Z-windows-installer.zip
 ```
 
 ## Glossary
@@ -346,7 +346,7 @@ Optional extras (declared in `pyproject.toml`):
 ## Testing
 
 ```powershell
-pytest -q                              # all 361 tests, ~60-90 s on a warm cache
+pytest -q                              # all 371 tests, ~60-90 s on a warm cache
 pytest -q --cov=rin --cov-report=term-missing  # with coverage
 pytest tests/test_perf_*.py            # pytest-benchmark suite
 ruff check src tests scripts
@@ -428,7 +428,7 @@ Two artefacts: a small **source zip** (~200 KB) and a large **PyInstaller
 .\scripts\build_release.ps1       # → dist\RIN-vX.Y.Z-windows.zip
 
 # Standalone .exe — build locally, then upload as a 2nd asset
-.\scripts\build_exe.ps1           # → dist\RIN\ (1.1 GB) + dist\RIN-vX.Y.Z-windows-exe.zip
+.\scripts\build_exe.ps1           # → dist\RIN\ (1.1 GB) + dist\RIN-vX.Y.Z-windows-installer.zip
 ```
 
 `scripts/RIN.spec` drives the PyInstaller build. Key conventions:

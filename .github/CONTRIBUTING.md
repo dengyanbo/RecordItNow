@@ -29,7 +29,7 @@ uv venv
 .\.venv\Scripts\Activate.ps1
 uv pip install -e ".[all,dev]"
 
-pytest -q          # should print "306 passed" (or higher)
+pytest -q          # should print "371 passed" (or higher)
 python -m rin --smoke
 ```
 
@@ -78,7 +78,7 @@ ruff format src tests scripts    # optional but recommended
 them in your PR; if a rule is genuinely wrong for a single file, add an
 inline `# noqa: <code>` comment with a one-line justification.
 
-> The current baseline is **306 passed**; PRs must not regress that count.
+> The current baseline is **371 passed**; PRs must not regress that count.
 
 ## 5. The five hard rules
 
@@ -146,8 +146,8 @@ change — every accent × theme combination must clear 4.5:1 contrast.
 ## 7. Releasing
 
 You probably don't need to release; the maintainer handles tagging.
-But the recipe is in [README.md → 🤖 For AI agents working on this
-codebase → Common tasks → Ship a release](README.md#ship-a-release).
+But the recipe is in [`docs/DEVELOPING.md`](../docs/DEVELOPING.md) under
+"Common tasks → Ship a release".
 
 ## 8. Code of Conduct
 

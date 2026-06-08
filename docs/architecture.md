@@ -29,20 +29,20 @@ when you need the detailed *why* and the sequence diagrams.
 
   Background threads (start once at app boot, stop on Quit):
 
-      ┌──────────────┐     ┌────────────────┐     ┌──────────────────┐
-      │ InputManager │     │ AnalysisSched. │     │ ReportsSched.    │
-      │  (pynput /   │     │ (APScheduler)  │     │  (APScheduler)   │
-      │   hidapi)    │     │                │     │                  │
-      └──────┬───────┘     └────────┬───────┘     └────────┬─────────┘
-             │                      │                      │
-             ▼                      ▼                      ▼
-      ┌──────────────┐     ┌────────────────┐     ┌──────────────────┐
-      │ CaptureSvc   │     │ Summarizer +   │     │ ReportGenerator  │
-      │  (mss +      │     │ video/image    │     │  (Jinja2 + md)   │
-      │   ffmpeg)    │     │ analyzer       │     │                  │
-      └──────┬───────┘     └────────┬───────┘     └────────┬─────────┘
-             │                      │                      │
-             ▼                      ▼                      ▼
+      ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+      │ InputManager │  │ AnalysisSch. │  │ ReportsSch.  │  │ BucketSch.   │
+      │  (pynput /   │  │ (APScheduler)│  │ (APScheduler)│  │ (APScheduler)│
+      │   hidapi)    │  │              │  │              │  │              │
+      └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
+             │                 │                 │                 │
+             ▼                 ▼                 ▼                 ▼
+      ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+      │ CaptureSvc   │  │ Summarizer + │  │ ReportGen.   │  │ BucketArch.  │
+      │  (mss +      │  │ video/image  │  │  (Jinja2 +   │  │ (skills/*    │
+      │   ffmpeg)    │  │ analyzer     │  │   md)        │  │  bucket.py)  │
+      └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
+             │                 │                 │                 │
+             ▼                 ▼                 ▼                 ▼
       ┌─────────────────────────────────────────────────────────────────┐
       │     storage  (SQLite via SQLAlchemy + ChromaDB + filesystem)    │
       └─────────────────────────────────────────────────────────────────┘
@@ -57,9 +57,11 @@ RIN is a single OS process (`python -m rin`) that runs:
 - **A global `QThreadPool`** — for capture I/O (`take_screenshot`,
   `start_recording`, `stop_recording`). These are short-lived tasks
   scheduled per click.
-- **Two APScheduler threads** — one for analysis (`AnalysisScheduler`),
-  one for reports (`ReportsScheduler`). Both run hourly tasks behind a
-  `threading.Lock` so overlapping ticks no-op.
+- **Three APScheduler `BackgroundScheduler` instances** — one for
+  analysis (`AnalysisScheduler`), one for reports (`ReportsScheduler`),
+  one for bucket archival (`BucketScheduler`, every 6 h by default).
+  All three run their ticks behind a `threading.Lock` so overlapping
+  ticks no-op.
 - **Listener threads inside pynput + hidapi** — these post `InputEvent`
   values back to the manager via a queued Qt signal so the gesture
   recogniser runs on the Qt main thread.
@@ -191,13 +193,19 @@ sequenceDiagram
 ```
 %LOCALAPPDATA%\RIN\
 ├─ config.toml              # RinConfig (TOML, never contains secrets)
-├─ rin.db                   # SQLite (captures, summaries, reports)
+├─ rin.db                   # SQLite (captures, summaries, reports, poi_candidates)
+├─ .lock                    # Single-instance file lock (msvcrt/fcntl, auto-released on process death)
+├─ .master.key.enc          # AES-256-GCM master key, DPAPI-wrapped per-user
 ├─ chroma/                  # ChromaDB persisted directory
 ├─ logs/
 │   └─ rin.log              # loguru, rotated daily, 7 days kept
 ├─ models/                  # Sentence-transformer + Whisper caches (prefetched)
+├─ skills/                  # User-installable skill plugins (e.g. <name>/skill.py)
 ├─ reports/
-│   └─ YYYY-MM-DD.md        # Daily report markdown
+│   ├─ daily-YYYYMMDD.md    # Daily report markdown
+│   ├─ weekly-YYYYMMDD.md   # Weekly report markdown
+│   └─ archives/
+│       └─ <skill>/<key>.md # Bucket archives (e.g. support_ticket/Case-2606050030000773.md)
 └─ captures/
     └─ YYYY/MM/DD/
         └─ 20260528-093712-shot/   # or -rec for recordings

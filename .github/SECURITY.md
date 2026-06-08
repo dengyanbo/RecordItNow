@@ -46,9 +46,8 @@ will not receive security fixes — please update.
 
 | Version | Supported |
 |---------|-----------|
-| 0.4.x   | ✅ |
-| 0.3.x   | ✅ (until 0.5.0) |
-| ≤ 0.2.x | ❌ |
+| 0.8.x   | ✅ |
+| ≤ 0.7.x | ❌ |
 
 ## Acknowledgements
 

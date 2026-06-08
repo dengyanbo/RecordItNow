@@ -11,10 +11,10 @@ uv pip install -e ".[all,dev]"
 .\scripts\build_exe.ps1
 ```
 
-The script runs `ruff` + `pytest`, reads `src\rin\__init__.py`, builds with `scripts\RIN.spec`, and writes:
+The script runs `ruff` + `pytest`, reads `src\rin\__init__.py`, builds with `scripts\RIN.spec`, stages an installer layout, and writes a single zip:
 
-- onedir bundle: `dist\RIN\` (PyInstaller default) or `build\exe\RIN\` if the output path is customized later
-- release asset: `dist\RIN-vX.Y.Z-windows-exe.zip`
+- PyInstaller onedir bundle: `dist\RIN\` (intermediate)
+- release asset: `dist\RIN-vX.Y.Z-windows-installer.zip` (this is the end-user download)
 
 ## What's in the bundle
 
@@ -33,15 +33,36 @@ Not included:
 
 Target the extracted onedir bundle to stay **under 1 GB**. In practice, expect roughly **750-950 MB unpacked**, with Torch + Whisper accounting for about **700 MB** of that footprint. The zip is smaller, but the installed folder is the size that matters on the target machine.
 
-## Installing the prebuilt bundle locally
+## Installer zip layout
 
-After `dist\RIN-vX.Y.Z-windows-exe.zip` exists, you can lay it down with:
+`build_exe.ps1` stages the following layout under `build\installer\` and zips it as `dist\RIN-vX.Y.Z-windows-installer.zip`:
 
-```powershell
-.\scripts\install.ps1 -FromExe -Force
+```
+RIN-vX.Y.Z-windows-installer.zip
+├─ Install.bat              # end-user double-clicks this
+├─ install.ps1              # called by Install.bat; copies bundle into %LOCALAPPDATA%\Programs\RIN
+├─ prefetch_models.py       # optional sentence-transformer + whisper model warm-up
+├─ README-INSTALL.txt       # one-page install instructions
+├─ version.txt              # stamped version string read by Get-RinVersion
+└─ bundle\
+    ├─ RIN.exe              # PyInstaller launcher
+    └─ _internal\           # Python runtime, PySide6, ChromaDB, etc. (the whole onedir)
 ```
 
-`install.ps1` looks for `RIN-v*-windows-exe.zip` next to the script, one directory above it, or in `..\dist\`.
+## Installing the prebuilt bundle locally
+
+After `dist\RIN-vX.Y.Z-windows-installer.zip` exists, the end-user flow is:
+
+1. Right-click the zip → **Extract All**
+2. Double-click `Install.bat`
+
+That's it — `Install.bat` invokes `install.ps1 -FromBundle bundle -Force` under the hood, copies the bundle into `%LOCALAPPDATA%\Programs\RIN\`, registers the Start Menu shortcut, and (if missing) installs FFmpeg via `winget install Gyan.FFmpeg`.
+
+For developer testing without re-running PyInstaller:
+
+```powershell
+.\scripts\install.ps1 -FromBundle .\dist\RIN -Force
+```
 
 ## Troubleshooting
 

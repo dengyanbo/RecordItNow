@@ -38,7 +38,7 @@ prefer no UAC at all:
 
 ### `pip install -e .[all,dev]` complains about Python version
 
-RIN requires Python ≥ 3.11. Check:
+RIN requires Python ≥ 3.11 (release builds and CI use 3.12). Check:
 
 ```powershell
 python --version
@@ -93,6 +93,30 @@ Get-Process ffmpeg
 
 Kill them with `Stop-Process -Id <pid>` and report the conditions.
 
+### RIN won't start — Windows shows "RIN is already running"
+
+Since v0.8.1 RIN enforces a single instance per user via an OS lock at
+`%LOCALAPPDATA%\RIN\.lock`. The MessageBox you're seeing means another
+RIN process is already alive — look for the icon in the system tray
+(bottom-right). If you don't see it:
+
+```powershell
+Get-Process RIN
+```
+
+If a stale process is listed but the tray icon is missing, kill it and
+relaunch:
+
+```powershell
+Stop-Process -Id <pid> -Force
+& "$env:LOCALAPPDATA\Programs\RIN\RIN.exe"
+```
+
+The OS releases the `.lock` automatically when the process dies, so you
+should never need to delete the file manually. For autostart launchers
+or scripts that want to silently no-op when RIN is already running, set
+`RIN_SUPPRESS_DUP_DIALOG=1` to skip the modal.
+
 ---
 
 ## Input / triggers
@@ -146,8 +170,7 @@ report it.
 ### Whisper transcripts are full of nonsense Chinese / English
 
 The default model is `small`, which trades quality for speed. For
-zh-cn / ja content prefer `medium` or `large-v3`. v0.4 added a model
-picker; until then, edit `config.toml`:
+zh-cn / ja content prefer `medium` or `large-v3`. Edit `config.toml`:
 
 ```toml
 [analysis]
@@ -157,8 +180,8 @@ whisper_model = "medium"
 ### Daily report says "no captures today"
 
 The capture day is computed in **local time**. If you are in UTC+13
-working at midnight you may straddle two days. Until v0.4 adds a
-timezone option, your "day" starts at midnight local.
+working at midnight you may straddle two days; your "day" starts at
+midnight local.
 
 ### `keyring` raises on Linux / WSL
 
@@ -179,7 +202,7 @@ search remains keyword-only.
 
 ### "Embedding model not found" on a brand-new install
 
-Run `python -m rin.scripts.prefetch_models` once with internet, or pass
+Run `python scripts\prefetch_models.py` once with internet, or pass
 `-Prefetch` to `install.ps1`.
 
 ### Copilot CLI auth required
@@ -235,10 +258,18 @@ tag with `git tag -f`.
 
 ### Pre-built zip won't extract
 
-The zip is `dist/RIN-v<version>-windows.zip` and only contains source
-plus install script. There is no portable .exe yet — you still need
-Python on the target machine. The v0.4 todo `v0.4-pyinstaller-exe`
-tracks a future portable build.
+The release ships as `RIN-v<version>-windows-installer.zip` (~430 MB)
+on the GitHub Release page. Right-click → **Extract All**, then
+double-click `Install.bat`. If extraction fails:
+
+- **Windows SmartScreen / Defender** may quarantine the unsigned
+  PyInstaller `.exe`. Unblock with right-click → Properties → **Unblock**
+  on the downloaded zip before extracting, or temporarily allow the
+  install folder in Defender → Virus & threat protection.
+- **Path-length limit (260 chars)**: extract to a short path like
+  `C:\temp\rin\` rather than `C:\Users\<long>\Downloads\...\`.
+- **Antivirus** sometimes truncates large zips during download —
+  redownload and verify the size matches the GitHub Release asset.
 
 ---
 
