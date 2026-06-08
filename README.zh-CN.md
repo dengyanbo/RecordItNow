@@ -16,7 +16,7 @@
 - 空闲时间 / 非工作时间，RIN 自动 **OCR + Whisper + 视觉 LLM** 分析每次 capture，写入本地向量库
 - **🔎 Search & Ask** 自然语言提问（比如 *"周二我看到的那个 error 是什么？"*），RAG agent 带 `cap-N` 引用回答
 - 每日 / 每周生成 Markdown 报告，可导出 PDF / HTML / 写入 Obsidian vault
-- **Skills** 插件按你的规则归类（比如 support-ticket ID），自动归档已关闭的
+- **Skills** 插件按你的规则归类——默认识别 16 位 case ID 和 19 位 collab task ID，关闭后自动归档
 - 100% 本地存储。云端 LLM 完全可选（默认 `copilot_cli` 不需要 API key）
 
 ---
@@ -76,7 +76,7 @@
 | 4 | 托盘 → 🧠 *Analyze now* | OCR + LLM 总结每个未分析的 capture，toast 报告进度 |
 | 5 | 托盘 → 🔎 *Search…* | 输入查询 → 语义搜索结果。提问 → agent 带 `cap-N` 引用回答 |
 | 6 | 托盘 → 📄 *Reports…* → *Today* | 当天 Markdown 报告，工具栏可导出 PDF / HTML |
-| 7 | Settings → **Skills** → 启用 *Support tickets* | RIN 自动按 ticket ID 归类，看到 "Status: Closed" 就归档 |
+| 7 | Settings → **Skills** → 启用 *Support tickets* | 默认识别 16 位 case ID 和 19 位 collab task ID，看到 "Status: Closed" 就归档 |
 | 8 | `Ctrl + Alt + Shift + P` | 紧急暂停快捷键（仅 RAM；持久暂停在 Settings → Privacy） |
 
 ---
@@ -90,7 +90,7 @@
 | **存储** | SQLite (WAL + 外键)、ChromaDB 向量、FTS5 报告搜索、按日期分文件夹、可配置保留期 |
 | **LLM 后端** | GitHub Copilot CLI（默认，免 API key）· OpenAI · Azure OpenAI |
 | **分析** | 每小时后台任务，仅在非工作时间或 idle 时跑；OCR + Whisper + 视觉 LLM。语言可配置。 |
-| **Skills** | 可插拔归类。内置：`support_ticket`（按 ticket ID 归类，关闭后自动归档）。自定义 skill 放在 `%LOCALAPPDATA%\RIN\skills\` 即可。 |
+| **Skills** | 可插拔归类。内置 `support_ticket` 默认识别 16 位 case ID + 19 位 collab task ID（关闭后自动归档）。自定义 skill 放在 `%LOCALAPPDATA%\RIN\skills\` 即可。 |
 | **Topics & PoIs** | 将项目 / 客户 / 人物作为 PoI 跟踪；报告按 PoI 分组。 |
 | **报告** | 每日 / 每周 Markdown 报告，全文检索（FTS5），可导出 PDF / HTML，可选 Obsidian vault 同步写入。 |
 | **RAG 搜索** | 语义搜索 + RAG agent 带引用回答 |

@@ -17,7 +17,7 @@ lets an LLM make it searchable**.
 - During idle / off-hours, RIN runs **OCR + Whisper + a vision LLM** on each capture and indexes the summaries into a local vector store
 - Ask **🔎 Search & Ask** in natural language (*"what was that error I saw on Tuesday?"*); a RAG agent answers with `cap-N` citations
 - Generates daily / weekly Markdown reports, exportable to PDF / HTML / your Obsidian vault
-- **Skills** plug in to categorize captures by your own rules (e.g. support-ticket IDs); auto-archive when done
+- **Skills** plug in to categorize captures by your own rules — bundled defaults recognise 16-digit case IDs and 19-digit collab task IDs; auto-archive when done
 - 100 % local storage. Cloud LLM only if you pick one (`copilot_cli` default needs no API key)
 
 ---
@@ -77,7 +77,7 @@ After install:
 | 4 | Tray → 🧠 *Analyze now* | OCR + LLM summarise every recent capture; toasts report progress |
 | 5 | Tray → 🔎 *Search…* | Type a query → semantic hits. Ask a question → agent answers with `cap-N` citations |
 | 6 | Tray → 📄 *Reports…* → *Today* | Daily Markdown saved; export PDF / HTML from the toolbar |
-| 7 | Settings → **Skills** → enable *Support tickets* | RIN auto-groups captures by ticket ID; archives when "Status: Closed" appears |
+| 7 | Settings → **Skills** → enable *Support tickets* | Auto-groups captures by 16-digit case ID / 19-digit collab task ID; archives when "Status: Closed" appears |
 | 8 | `Ctrl + Alt + Shift + P` | Panic-pause hotkey (RAM-only; persistent pause lives in Settings → Privacy) |
 
 ---
@@ -91,7 +91,7 @@ After install:
 | **Storage** | SQLite (WAL + foreign keys), ChromaDB for vectors, FTS5 for report search, dated file tree, configurable retention |
 | **LLM providers** | GitHub Copilot CLI (default, no API key) · OpenAI · Azure OpenAI |
 | **Analysis** | Hourly background job gated by working hours OR idle, with OCR + Whisper + vision LLM. Languages configurable. |
-| **Skills** | Pluggable categorization. Bundled: `support_ticket` (groups by ticket ID, archives on resolution). Drop your own under `%LOCALAPPDATA%\RIN\skills\`. |
+| **Skills** | Pluggable categorization. Bundled `support_ticket` recognises 16-digit case IDs + 19-digit collab task IDs out of the box, archives on resolution. Drop your own under `%LOCALAPPDATA%\RIN\skills\`. |
 | **Topics & PoIs** | Track projects/customers/people as Points of Interest; reports grouped per PoI |
 | **Reports** | Daily / weekly Markdown with FTS5 search across history. Export PDF / HTML. Optional Obsidian vault target with YAML front-matter. |
 | **RAG search** | Semantic search across captures with cited answers from a RAG agent |
