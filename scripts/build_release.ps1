@@ -103,7 +103,7 @@ try {
     Write-Host "  git tag -a v$version -m 'RIN v$version'"
     Write-Host "  git push origin v$version"
     Write-Host "  gh release create v$version $zipPath \"
-    Write-Host "    --title 'RIN v$version' --notes-file CHANGELOG.md"
+    Write-Host "    --title 'RIN v$version' --notes-file docs/CHANGELOG.md"
     Write-Host ""
 } finally {
     Pop-Location

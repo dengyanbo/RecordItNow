@@ -158,4 +158,4 @@ By participating, you agree to abide by [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.m
 - Question / discussion: open a [GitHub Discussion](https://github.com/dengyanbo/RecordItNow/discussions).
 - Bug: file an issue using the **🐛 Bug report** template.
 - Security: see [`SECURITY.md`](SECURITY.md).
-- Deeper dev guide (architecture, decision log, common-task recipes, glossary): see [`DEVELOPING.md`](DEVELOPING.md).
+- Deeper dev guide (architecture, decision log, common-task recipes, glossary): see [`DEVELOPING.md`](../docs/DEVELOPING.md).

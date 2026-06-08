@@ -248,4 +248,4 @@ If you touch:
 | `recorder.py` ffmpeg flags | regenerate the smoke recording (5-second test) and confirm `recorder.stop()` exits cleanly |
 | Any subprocess | confirm `encoding="utf-8", errors="replace"` is set |
 
-See [CONTRIBUTING.md](../CONTRIBUTING.md) for the rest of the bar.
+See [CONTRIBUTING.md](../.github/CONTRIBUTING.md) for the rest of the bar.

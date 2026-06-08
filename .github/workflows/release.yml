@@ -59,5 +59,5 @@ jobs:
           if (-not $zip) { throw "Expected dist/RIN-$tag-windows.zip but did not find it" }
           gh release create $tag $zip.FullName `
             --title "RIN $tag" `
-            --notes "Automated release from tag $tag. See CHANGELOG.md for details." `
+            --notes "Automated release from tag $tag. See docs/CHANGELOG.md for details." `
             --verify-tag

@@ -1,8 +1,8 @@
 # RIN — Record It Now
 
-> **Languages:** **English** · [中文](README.zh-CN.md) · **Building or contributing?** see [`DEVELOPING.md`](DEVELOPING.md)
+> **Languages:** **English** · [中文](README.zh-CN.md) · **Building or contributing?** see [`docs/DEVELOPING.md`](docs/DEVELOPING.md)
 
-[![tests](https://img.shields.io/badge/tests-361%20%2F%20361-brightgreen)](DEVELOPING.md#testing)
+[![tests](https://img.shields.io/badge/tests-371%20%2F%20371-brightgreen)](docs/DEVELOPING.md#testing)
 [![python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](#requirements)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D4)](#requirements)
@@ -44,7 +44,7 @@ That's it. The installer:
 .\install.ps1 -FromBundle .\bundle -Force -SkipDeps             # skip FFmpeg auto-install
 ```
 
-Building or contributing from source? See [`DEVELOPING.md`](DEVELOPING.md).
+Building or contributing from source? See [`docs/DEVELOPING.md`](docs/DEVELOPING.md).
 
 After install:
 
@@ -152,9 +152,9 @@ Want sequence diagrams + per-module rationale? See
 - Current: **v0.8.1** (released 2026-06-08)
 - **371 / 371 pytest** pass · ruff clean
 - CI green on Python 3.11 + 3.12 on `windows-latest`
-- Full release history: [`CHANGELOG.md`](CHANGELOG.md)
-- Want to contribute or extend? Read [`DEVELOPING.md`](DEVELOPING.md)
-- Security concerns: [`SECURITY.md`](SECURITY.md)
+- Full release history: [`docs/CHANGELOG.md`](docs/CHANGELOG.md)
+- Want to contribute or extend? Read [`docs/DEVELOPING.md`](docs/DEVELOPING.md)
+- Security concerns: [`.github/SECURITY.md`](.github/SECURITY.md)
 
 ## License
 

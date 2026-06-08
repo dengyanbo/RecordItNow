@@ -26,7 +26,7 @@ Closes #
 
 ## Checklist
 
-- [ ] I read [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md)
+- [ ] I read [CONTRIBUTING.md](../blob/main/.github/CONTRIBUTING.md)
 - [ ] My commit messages include `Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>` when AI assistance was used
 - [ ] I did **not** introduce a GPL-licensed dependency (RIN ships MIT)
 - [ ] I did **not** add a hard requirement on bundled FFmpeg (we install it via `winget`)

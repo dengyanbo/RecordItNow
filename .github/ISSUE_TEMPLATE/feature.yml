@@ -6,7 +6,7 @@ body:
     attributes:
       value: |
         Before filing, please skim the
-        [pending todos in CHANGELOG.md](../blob/main/CHANGELOG.md)
+        [pending todos in CHANGELOG.md](../blob/main/docs/CHANGELOG.md)
         and existing issues — your idea may already be queued.
 
   - type: textarea

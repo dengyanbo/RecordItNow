@@ -5,7 +5,7 @@
 
 ## Read this first
 
-**[`DEVELOPING.md`](DEVELOPING.md)** is the canonical entry point. It
+**[`docs/DEVELOPING.md`](docs/DEVELOPING.md)** is the canonical entry point. It
 contains:
 
 - **Repository at a glance** — one-line description of every `src/rin/<subpackage>/`.
@@ -20,7 +20,7 @@ End-user docs (install, screenshots, feature list) live in
 [`README.md`](README.md). Architecture deep-dive lives in
 [`docs/architecture.md`](docs/architecture.md). Custom-skill recipe
 lives in [`docs/skills.md`](docs/skills.md). Release history is in
-[`CHANGELOG.md`](CHANGELOG.md).
+[`docs/CHANGELOG.md`](docs/CHANGELOG.md).
 
 ## Hard rules — these are non-negotiable
 

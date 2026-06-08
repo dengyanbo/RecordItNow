@@ -456,8 +456,8 @@ Full build guide: [`docs/build-exe.md`](docs/build-exe.md).
 - [`docs/build-exe.md`](docs/build-exe.md) — PyInstaller bundle build
   + known pitfalls (ChromaDB native loading, Whisper model caching).
 - [`CHANGELOG.md`](CHANGELOG.md) — Release-by-release rationale.
-- [`SECURITY.md`](SECURITY.md) — What stays local, what leaves the
+- [`SECURITY.md`](../.github/SECURITY.md) — What stays local, what leaves the
   machine, how to disclose vulnerabilities.
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) — Branch / commit / PR norms.
+- [`CONTRIBUTING.md`](../.github/CONTRIBUTING.md) — Branch / commit / PR norms.
 - [`AGENTS.md`](AGENTS.md) — Hard rules for AI agents working in this
   repo.

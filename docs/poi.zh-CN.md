@@ -275,5 +275,5 @@ vault，分组后的报告也会写进去。
 ## 另请参阅
 
 - [docs/skills.md](skills.md) — 技能框架的底层说明（偏进阶）。
-- [DEVELOPING.md](../DEVELOPING.md) — 面向开发者的文档。
-- [CHANGELOG.md](../CHANGELOG.md) — 发布记录。
+- [DEVELOPING.md](DEVELOPING.md) — 面向开发者的文档。
+- [CHANGELOG.md](CHANGELOG.md) — 发布记录。

@@ -315,5 +315,5 @@ vault target, the grouped report is written there too.
 ## See also
 
 - [docs/skills.md](skills.md) — the underlying skill framework (advanced).
-- [DEVELOPING.md](../DEVELOPING.md) — developer documentation.
-- [CHANGELOG.md](../CHANGELOG.md) — release notes.
+- [DEVELOPING.md](DEVELOPING.md) — developer documentation.
+- [CHANGELOG.md](CHANGELOG.md) — release notes.

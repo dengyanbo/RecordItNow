@@ -1,8 +1,8 @@
 # RIN — Record It Now
 
-> **Languages:** [English](README.md) · **中文** · **开发或贡献？** 见 [`DEVELOPING.md`](DEVELOPING.md)
+> **Languages:** [English](README.md) · **中文** · **开发或贡献？** 见 [`docs/DEVELOPING.md`](docs/DEVELOPING.md)
 
-[![tests](https://img.shields.io/badge/tests-361%20%2F%20361-brightgreen)](DEVELOPING.md#testing)
+[![tests](https://img.shields.io/badge/tests-371%20%2F%20371-brightgreen)](docs/DEVELOPING.md#testing)
 [![python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](#要求)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D4)](#要求)
@@ -43,7 +43,7 @@
 .\install.ps1 -FromBundle .\bundle -Force -SkipDeps             # 跳过 FFmpeg 自动安装
 ```
 
-想从源码构建或贡献代码？看 [`DEVELOPING.md`](DEVELOPING.md)。
+想从源码构建或贡献代码？看 [`docs/DEVELOPING.md`](docs/DEVELOPING.md)。
 
 装完之后：
 
@@ -151,9 +151,9 @@
 - 当前版本：**v0.8.1**（2026-06-08 发布）
 - **371 / 371 pytest 通过** · ruff 清洁
 - CI 在 Windows + Python 3.11 / 3.12 上绿
-- 完整发布历史：[`CHANGELOG.md`](CHANGELOG.md)
-- 想贡献或扩展？读 [`DEVELOPING.md`](DEVELOPING.md)
-- 安全问题：[`SECURITY.md`](SECURITY.md)
+- 完整发布历史：[`docs/CHANGELOG.md`](docs/CHANGELOG.md)
+- 想贡献或扩展？读 [`docs/DEVELOPING.md`](docs/DEVELOPING.md)
+- 安全问题：[`.github/SECURITY.md`](.github/SECURITY.md)
 
 ## 许可证
 
