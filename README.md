@@ -24,23 +24,33 @@ lets an LLM make it searchable**.
 
 ## Install
 
-**Easiest** — download the standalone .exe bundle, unzip, run:
+**One-click install** — single download, no Python required (~430 MB):
 
-1. Get `RIN-vX.Y.Z-windows-exe.zip` from [GitHub Releases](https://github.com/dengyanbo/RecordItNow/releases) (~420 MB).
-2. Extract anywhere.
-3. Run `RIN.exe`. **No Python required.**
+1. Download `RIN-vX.Y.Z-windows-installer.zip` from [GitHub Releases](https://github.com/dengyanbo/RecordItNow/releases).
+2. Right-click the zip → **Extract All** (to anywhere).
+3. **Double-click `Install.bat`** in the extracted folder.
 
-**With install script** — provisions Python 3.12 + FFmpeg + Copilot CLI for you:
+That's it. The installer:
 
-1. Download `RIN-vX.Y.Z-windows.zip` (~200 KB), extract.
-2. Right-click `install.ps1` → **Run with PowerShell**.
+- Copies the standalone bundle to `%LOCALAPPDATA%\Programs\RIN\`
+- Installs FFmpeg via winget if it isn't already on `PATH`
+- Adds a Start Menu shortcut
 
-Common flags: `-Prefetch` (pre-download ~1 GB of ML models), `-Autostart` (run on Windows login), `-Force` (overwrite existing install). Full installer docs in [`DEVELOPING.md`](DEVELOPING.md#development-workflow).
+**Common flags** — open PowerShell in the extracted folder for any of these:
+
+```powershell
+.\install.ps1 -FromBundle .\bundle -Force -Autostart            # also run on Windows login
+.\install.ps1 -FromBundle .\bundle -Force -InstallDir "D:\Apps\RIN"
+.\install.ps1 -FromBundle .\bundle -Force -SkipDeps             # skip FFmpeg auto-install
+```
+
+Building or contributing from source? See [`DEVELOPING.md`](DEVELOPING.md).
 
 After install:
-- **Launch:** Start Menu → type `RIN`, or `pythonw -m rin`.
+
+- **Launch:** Start Menu → type `RIN`, or run `%LOCALAPPDATA%\Programs\RIN\RIN.exe`.
 - **Data lives under:** `%LOCALAPPDATA%\RIN\` (config, captures, reports, vector index, logs).
-- **Quit:** tray menu → *Quit*, or **Ctrl+C** in the launching terminal.
+- **Quit:** tray menu → *Quit*, or **Ctrl+Alt+Shift+P** to pause.
 
 ---
 

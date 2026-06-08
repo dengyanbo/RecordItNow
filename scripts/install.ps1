@@ -35,6 +35,12 @@
     a Python virtual environment. The zip is discovered next to this script
     or in `..\dist\`.
 
+.PARAMETER FromBundle
+    Install from a pre-extracted PyInstaller bundle directory containing
+    RIN.exe + _internal\. Used by the one-click Install.bat in the
+    `RIN-v*-windows-installer.zip` asset to skip the redundant double-zip
+    extraction step.
+
 .PARAMETER Force
     Overwrite an existing installation without prompting.
 
@@ -42,6 +48,7 @@
     .\install.ps1
     .\install.ps1 -Prefetch -Autostart
     .\install.ps1 -InstallDir "D:\Apps\RIN" -SkipDeps
+    .\install.ps1 -FromBundle .\bundle -Force
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
@@ -50,7 +57,8 @@ param(
     [switch]$Autostart,
     [switch]$SkipDeps,
     [switch]$Force,
-    [switch]$FromExe
+    [switch]$FromExe,
+    [string]$FromBundle = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -58,6 +66,14 @@ $ProgressPreference   = 'Continue'
 
 # Pull version from the bundled source so install messages match the package.
 function Get-RinVersion {
+    # 1. Stamped version.txt next to install.ps1 (written by build_exe.ps1 for
+    #    one-click installer zips).
+    $stamp = Join-Path $PSScriptRoot 'version.txt'
+    if (Test-Path $stamp) {
+        $v = (Get-Content $stamp -Raw -ErrorAction SilentlyContinue).Trim()
+        if ($v) { return $v }
+    }
+    # 2. Source checkout: read from src/rin/__init__.py.
     $initPath = Join-Path $PSScriptRoot '..\src\rin\__init__.py'
     if (-not (Test-Path $initPath)) {
         $initPath = Join-Path $PSScriptRoot 'src\rin\__init__.py'
@@ -66,15 +82,19 @@ function Get-RinVersion {
         $line = (Select-String -Path $initPath -Pattern '__version__\s*=' -SimpleMatch:$false | Select-Object -First 1)
         if ($line) { return ($line.Line -replace '.*"([^"]+)".*', '$1') }
     }
+    # 3. Last resort: parse the zip filename if one is nearby.
     foreach ($pattern in @(
+        (Join-Path $PSScriptRoot 'RIN-v*-windows-installer.zip'),
         (Join-Path $PSScriptRoot 'RIN-v*-windows-exe.zip'),
+        (Join-Path $PSScriptRoot '..\RIN-v*-windows-installer.zip'),
         (Join-Path $PSScriptRoot '..\RIN-v*-windows-exe.zip'),
+        (Join-Path $PSScriptRoot '..\dist\RIN-v*-windows-installer.zip'),
         (Join-Path $PSScriptRoot '..\dist\RIN-v*-windows-exe.zip')
     )) {
         $zip = Get-ChildItem -Path $pattern -File -ErrorAction SilentlyContinue |
             Sort-Object LastWriteTime -Descending |
             Select-Object -First 1
-        if ($zip -and $zip.BaseName -match '^RIN-v(.+)-windows-exe$') {
+        if ($zip -and $zip.BaseName -match '^RIN-v(.+)-windows-(installer|exe)$') {
             return $Matches[1]
         }
     }
@@ -197,26 +217,67 @@ if ($PSCmdlet.ShouldProcess($InstallDir, 'create install directory')) {
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 }
 
-if ($FromExe) {
-    Write-Step "Installing pre-built exe bundle"
+if ($FromBundle -or $FromExe) {
+    Write-Step "Installing pre-built standalone bundle"
     if ($Prefetch) {
         Write-Warn "-Prefetch is ignored for pre-built exe installs. RIN will download models on first use."
     }
-    $exeZip = Find-ExeBundleZip
-    if (-not $exeZip) {
-        Fail "Cannot find RIN-v*-windows-exe.zip next to install.ps1 or under ..\dist\."
+
+    if ($FromBundle) {
+        $resolvedBundle = (Resolve-Path -LiteralPath $FromBundle -ErrorAction SilentlyContinue)
+        if (-not $resolvedBundle) {
+            Fail "Bundle directory not found: $FromBundle"
+        }
+        $bundleSrcExe = Join-Path $resolvedBundle.Path 'RIN.exe'
+        if (-not (Test-Path $bundleSrcExe)) {
+            Fail "Bundle directory $($resolvedBundle.Path) does not contain RIN.exe (expected $bundleSrcExe)."
+        }
+        Write-Host "    Source: $($resolvedBundle.Path)"
+        if ($PSCmdlet.ShouldProcess($InstallDir, 'copy pre-built bundle')) {
+            $robocopyLog = Join-Path $env:TEMP 'rin-install-robocopy.log'
+            & robocopy $resolvedBundle.Path $InstallDir /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 /LOG:$robocopyLog | Out-Null
+            # robocopy returns 0..7 on success; >=8 is an error
+            $rc = $LASTEXITCODE
+            $global:LASTEXITCODE = 0
+            if ($rc -ge 8) {
+                if (Test-Path $robocopyLog) { Get-Content $robocopyLog -Tail 50 | ForEach-Object { Write-Host "    $_" } }
+                Fail "robocopy failed with exit code $rc"
+            }
+        }
+    } else {
+        $exeZip = Find-ExeBundleZip
+        if (-not $exeZip) {
+            Fail "Cannot find RIN-v*-windows-exe.zip next to install.ps1 or under ..\dist\."
+        }
+        Write-Host "    Bundle: $exeZip"
+        if ($PSCmdlet.ShouldProcess($InstallDir, 'extract pre-built exe bundle')) {
+            Expand-Archive -Path $exeZip -DestinationPath $InstallDir -Force
+        }
     }
-    Write-Host "    Bundle: $exeZip"
-    if ($PSCmdlet.ShouldProcess($InstallDir, 'extract pre-built exe bundle')) {
-        Expand-Archive -Path $exeZip -DestinationPath $InstallDir -Force
-    }
+
     $exePath = Join-Path $InstallDir 'RIN.exe'
     if (-not (Test-Path $exePath)) {
-        Fail "Bundle extract succeeded but $exePath was not found."
+        Fail "Install copy succeeded but $exePath was not found."
     }
-    Write-OK "Standalone bundle extracted to $InstallDir"
-    Write-Warn "FFmpeg is not bundled; install it separately if you want MP4 recording."
-    Write-Warn "The default LLM provider still expects GitHub Copilot CLI unless you switch providers in Settings."
+    Write-OK "Standalone bundle installed at $InstallDir"
+
+    # FFmpeg auto-install for true one-click. Skipped under -SkipDeps.
+    if (-not $SkipDeps) {
+        Write-Step "Ensuring FFmpeg (required for MP4 recording)"
+        if (-not (Test-Command 'ffmpeg')) {
+            Install-PackageViaWinget -Id 'Gyan.FFmpeg' -Friendly 'FFmpeg' | Out-Null
+            Refresh-Path
+        }
+        if (Test-Command 'ffmpeg') {
+            Write-OK "FFmpeg OK: $((& ffmpeg -version 2>&1 | Select-Object -First 1))"
+        } else {
+            Write-Warn "FFmpeg not on PATH. Video recording will fail until installed."
+            Write-Host "    Install manually: winget install Gyan.FFmpeg"
+        }
+    } else {
+        Write-Warn "FFmpeg auto-install skipped (-SkipDeps). Video recording requires ffmpeg on PATH."
+    }
+    Write-Warn "The default LLM provider expects GitHub Copilot CLI; you can switch to OpenAI/Azure in Settings."
 
     Write-Step "Start Menu shortcut"
     $startMenu = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\RIN.lnk'

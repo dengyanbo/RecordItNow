@@ -23,23 +23,33 @@
 
 ## 安装
 
-**最简单** — 下载 .exe 包，解压，运行：
+**一键安装** — 单个下载，不需要装 Python（~430 MB）：
 
-1. 从 [GitHub Releases](https://github.com/dengyanbo/RecordItNow/releases) 下载 `RIN-vX.Y.Z-windows-exe.zip` (~420 MB)
-2. 解压到任意位置
-3. 双击 `RIN.exe` 即可。**不需要装 Python**
+1. 从 [GitHub Releases](https://github.com/dengyanbo/RecordItNow/releases) 下载 `RIN-vX.Y.Z-windows-installer.zip`
+2. 右键 zip → **全部解压** （到任意目录）
+3. 在解压出的目录里 **双击 `Install.bat`**
 
-**用安装脚本** — 自动装 Python 3.12 + FFmpeg + Copilot CLI：
+完事。安装器会：
 
-1. 下载 `RIN-vX.Y.Z-windows.zip` (~200 KB)，解压
-2. 右键 `install.ps1` → **使用 PowerShell 运行**
+- 把独立运行的 bundle 复制到 `%LOCALAPPDATA%\Programs\RIN\`
+- 如果 `PATH` 里没 FFmpeg，自动用 winget 装一个
+- 创建开始菜单快捷方式
 
-常用 flag：`-Prefetch`（预下 ~1 GB ML 模型）、`-Autostart`（开机自启）、`-Force`（覆盖现有安装）。详细参数见 [`DEVELOPING.md`](DEVELOPING.md#development-workflow)。
+**常用 flag** — 想用的话，在解压目录里开个 PowerShell 跑：
+
+```powershell
+.\install.ps1 -FromBundle .\bundle -Force -Autostart            # 同时设置开机自启
+.\install.ps1 -FromBundle .\bundle -Force -InstallDir "D:\Apps\RIN"
+.\install.ps1 -FromBundle .\bundle -Force -SkipDeps             # 跳过 FFmpeg 自动安装
+```
+
+想从源码构建或贡献代码？看 [`DEVELOPING.md`](DEVELOPING.md)。
 
 装完之后：
-- **启动**：开始菜单输 `RIN`，或 `pythonw -m rin`
+
+- **启动**：开始菜单输 `RIN`，或直接跑 `%LOCALAPPDATA%\Programs\RIN\RIN.exe`
 - **数据位置**：`%LOCALAPPDATA%\RIN\`（配置、截图、报告、向量库、日志）
-- **退出**：托盘菜单 → *Quit*，或终端里 **Ctrl+C**
+- **退出**：托盘菜单 → *Quit*，或 **Ctrl+Alt+Shift+P** 暂停
 
 ---
 

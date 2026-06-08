@@ -57,6 +57,30 @@ for ticket-centric workflows.
 push. The PyInstaller .exe bundle (~423 MB) will be built locally and
 uploaded as a follow-up, mirroring the v0.7.1 process.
 
+### Post-release: true one-click installer (2026-06-08)
+- **Single asset**: `RIN-v0.8.0-windows-installer.zip` (~430 MB)
+  replaces the previous two-zip split (`-windows-exe.zip` standalone
+  bundle + `-windows.zip` install script). Only one download.
+- **Only manual step is double-click**: zip ships with
+  `Install.bat` (calls `install.ps1 -FromBundle bundle -Force` under
+  the hood), pre-extracted PyInstaller bundle, install script,
+  README-INSTALL.txt, and `version.txt` stamp.
+- `install.ps1` gains `[string]$FromBundle = ''` parameter for the
+  "copy this directory tree into `%LOCALAPPDATA%\Programs\RIN\`" path,
+  uses `robocopy /E` for the 1+ GB tree (handles edge cases
+  `Copy-Item` chokes on), auto-installs FFmpeg via winget when
+  missing, and registers Start Menu shortcut.
+- `Get-RinVersion` now reads `version.txt` first (so the installer
+  banner correctly prints `(v0.8.0)` when running from a bundle that
+  has no `src/__init__.py`).
+- `build_exe.ps1` rewritten to stage the installer layout under
+  `build\installer\` and zip via
+  `[System.IO.Compression.ZipFile]::CreateFromDirectory` (avoids the
+  PS 5.1 `Compress-Archive` quirk that silently drops subdirectories
+  with `-Path "stage\*"`).
+- Verified end-to-end: clean uninstall → fresh extract → double-click
+  → install completes in 19 s, RIN.exe launches cleanly.
+
 ## v0.7.1 — Polish + first real .exe asset
 
 Bug fixes, ergonomics, and the **first actually-built PyInstaller
