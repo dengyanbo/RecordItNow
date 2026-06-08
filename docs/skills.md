@@ -33,9 +33,13 @@ follow the [PoI guide](poi.md). RIN also ships with
 1. **Enable it** — open Settings → **Skills** → toggle *Support tickets*
    to Enabled → **Save**.
 2. **Work as usual.** Every time RIN analyzes a capture, the skill
-   scans the OCR + summary for ticket IDs like `INC0012345`,
-   `CASE0007890`, `SR1234567890`, `#1234`. Matches are linked to a
-   *bucket* keyed by the ticket ID.
+   scans the OCR + summary for ticket IDs. Defaults cover **16-digit
+   numeric case IDs** (e.g. `2606050030000773`), **19-digit collab
+   task IDs** (e.g. `2606010050000901001`), and the legacy
+   `INC0012345` / `CASE0007890` / `SR1234567890` / `#1234` style
+   prefixes. Matches are linked to a *bucket* keyed by the ticket ID;
+   the bucket title also picks up a `Case ` / `Task ` prefix when one
+   of the numeric defaults matches.
 3. **Close a ticket.** When any capture in the bucket mentions a
    "closed" phrase (`Status: Closed`, `marked as resolved`, …) the
    `BucketScheduler` archives the bucket on its next tick (default: 6h).
@@ -54,13 +58,23 @@ closure_check_hours = 6
 
 [skills.support_ticket]
 # Restrict / extend the recognised ticket-ID shapes.
+# Defaults cover Microsoft-style 16-digit case IDs + 19-digit collab
+# task IDs (16-digit case prefix + 3-digit task suffix), plus the
+# common legacy alphabetic prefixes.
 id_patterns = [
+    "\\d{19}",       # collab task ID (default → "Task" prefix)
+    "\\d{16}",       # case ID (default → "Case" prefix)
     "INC\\d{7}",
     "REQ\\d{7}",
     "SR\\d{7,10}",
     "CASE\\d{6,8}",
     "JIRA-\\d+",     # custom: JIRA card numbers
 ]
+# Optional friendly word prefixed to each bucket's title, aligned by
+# index with id_patterns. Use "" for no prefix. When the two lists
+# differ in length all labels are silently dropped to avoid
+# mis-labelling, so re-list both together if you override either.
+id_labels = ["Task", "Case", "", "", "", "", ""]
 # Phrases that mark a ticket as done.
 closed_phrases = [
     "ticket closed",
@@ -296,7 +310,7 @@ RIN repository. Third-party skills are not.
 
 | Name | Source | What it does |
 |---|---|---|
-| `support_ticket` | `rin.skills.builtin.support_ticket` | Tech-support ticket IDs (ServiceNow / Salesforce / GitHub-style). Archives on `Status: Closed` or N-day inactivity. |
+| `support_ticket` | `rin.skills.builtin.support_ticket` | Ticket IDs — defaults cover 16-digit numeric case IDs, 19-digit collab task IDs, plus legacy ServiceNow / Salesforce / GitHub-style prefixes. Bucket titles get a `Case` / `Task` prefix when the default patterns match. Archives on `Status: Closed` or N-day inactivity. |
 | `topic` | `rin.skills.builtin.topic` | Generic topic tracker (keywords / regex / aliases / optional LLM judge). The right tool when your work isn't ID-anchored. |
 
 More bundled skills will follow over time — open a PR if you build one

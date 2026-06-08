@@ -81,6 +81,22 @@ uploaded as a follow-up, mirroring the v0.7.1 process.
 - Verified end-to-end: clean uninstall → fresh extract → double-click
   → install completes in 19 s, RIN.exe launches cleanly.
 
+### Post-release: numeric case + collab task IDs (2026-06-08)
+- `support_ticket` skill now recognises **16-digit numeric case IDs**
+  (e.g. `2606050030000773`) and **19-digit numeric collab task IDs**
+  (e.g. `2606010050000901001`) out of the box, alongside the existing
+  ServiceNow / Salesforce / GitHub-style alphabetic prefixes.
+- New `[skills.support_ticket].id_labels` setting prepends a
+  human-readable word (`Case` / `Task`) to the bucket title so
+  reports and the Archives UI visually separate the two families.
+- Word-boundary anchors ensure the 19-digit pattern does not also
+  spawn a phantom 16-digit bucket from its prefix; each ID gets
+  exactly one bucket.
+- Strict length-match between `id_patterns` and `id_labels` —
+  mismatched lengths fall back to empty prefixes so custom regexes
+  are never accidentally tagged `Case` / `Task`.
+- 5 new tests in `tests/test_skills_base.py` (366 / 366 pass total).
+
 ## v0.7.1 — Polish + first real .exe asset
 
 Bug fixes, ergonomics, and the **first actually-built PyInstaller

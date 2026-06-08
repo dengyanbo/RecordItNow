@@ -15,14 +15,34 @@ log = get_logger(__name__)
 
 
 # Default regexes — opinionated but conservative. Common ticket-ID
-# formats from the systems we routinely see (ServiceNow, Salesforce,
-# GitHub-style). Easily overridden via the skill's TOML config.
+# formats we routinely see, ordered longest-first so that longer IDs
+# (e.g. 19-digit collab task IDs) win over substrings.  The 16 and 19
+# digit numeric patterns target Microsoft-style case / collab-task
+# identifiers (a 12-month YYMM prefix + zero-padded counter); legacy
+# alphabetic prefixes (ServiceNow / Salesforce / GitHub-style) follow.
 _DEFAULT_PATTERNS = (
+    r"\b\d{19}\b",
+    r"\b\d{16}\b",
     r"\bINC\d{7}\b",
     r"\bREQ\d{7}\b",
     r"\bSR\d{7,10}\b",
     r"\bCASE\d{6,8}\b",
     r"#\d{4,6}\b",
+)
+
+# Optional human-readable prefix added to the bucket title for each
+# pattern (aligned by index with ``_DEFAULT_PATTERNS``).  Empty string
+# means no prefix.  When users override ``id_patterns`` without also
+# providing a matching-length ``id_labels``, the runtime falls back to
+# empty prefixes for every pattern to avoid mis-labelling.
+_DEFAULT_LABELS = (
+    "Task",
+    "Case",
+    "",
+    "",
+    "",
+    "",
+    "",
 )
 
 _DEFAULT_CLOSED_PHRASES = (
@@ -41,13 +61,21 @@ class SupportTicketConfig(BaseModel):
     Override in ``config.toml`` under ``[skills.support_ticket]``::
 
         [skills.support_ticket]
-        id_patterns = ["INC\\d{7}", "JIRA-\\d+"]
+        id_patterns = ["\\\\d{19}", "\\\\d{16}", "INC\\\\d{7}"]
+        id_labels   = ["Task", "Case", ""]
         closed_phrases = ["ticket closed", "done"]
         auto_archive_after_days = 7
         use_llm_for_archive = true
+
+    ``id_labels`` is aligned by index with ``id_patterns`` and prepends
+    a friendly word (e.g. ``Case 2606050030000773``) to the bucket
+    title. When the two lists have different lengths the runtime
+    silently falls back to empty prefixes for every pattern to avoid
+    accidental mis-labelling.
     """
 
     id_patterns: list[str] = Field(default_factory=lambda: list(_DEFAULT_PATTERNS))
+    id_labels: list[str] = Field(default_factory=lambda: list(_DEFAULT_LABELS))
     closed_phrases: list[str] = Field(
         default_factory=lambda: list(_DEFAULT_CLOSED_PHRASES)
     )
@@ -80,12 +108,20 @@ class SupportTicketSkill(Skill):
     def detect(self, ctx: SkillContext) -> list[BucketRef]:
         cfg = self._config()
         patterns = self._compile(cfg.id_patterns)
+        # Strict length-match: only use user-provided labels when they
+        # line up with patterns 1:1. Otherwise drop to empty prefixes
+        # for every pattern — safer than zip-truncating, which would
+        # mis-label patterns at indices beyond the labels list.
+        if len(cfg.id_labels) == len(patterns):
+            labels = list(cfg.id_labels)
+        else:
+            labels = [""] * len(patterns)
         text = "\n".join(filter(None, (ctx.summary, ctx.ocr_text, ctx.transcript_text)))
         if not text or not patterns:
             return []
 
         seen: dict[str, BucketRef] = {}
-        for pat in patterns:
+        for pat, label in zip(patterns, labels, strict=True):
             for match in pat.finditer(text):
                 key = match.group(0).strip()
                 if not key:
@@ -93,7 +129,7 @@ class SupportTicketSkill(Skill):
                 norm = key.upper()
                 if norm in seen:
                     continue
-                title = self._extract_title(text, match.end(), norm)
+                title = self._extract_title(text, match.end(), norm, label)
                 seen[norm] = BucketRef(key=norm, title=title, extra={})
                 if cfg.only_first_match:
                     return list(seen.values())
@@ -161,15 +197,21 @@ class SupportTicketSkill(Skill):
         return compiled
 
     @staticmethod
-    def _extract_title(text: str, end_offset: int, key: str) -> str:
-        """Use the 60 chars after the match as a context hint."""
+    def _extract_title(text: str, end_offset: int, key: str, label: str = "") -> str:
+        """Use the 60 chars after the match as a context hint.
+
+        ``label`` (e.g. ``"Case"`` / ``"Task"``) is prepended to the
+        bucket title so reports and the UI can visually separate
+        different ID families that share a numeric format.
+        """
 
         tail = text[end_offset : end_offset + 60].strip().splitlines()
         first_line = tail[0] if tail else ""
         cleaned = re.sub(r"\s+", " ", first_line).strip(" -:|·")
+        prefix = f"{label} " if label else ""
         if cleaned:
-            return f"{key} — {cleaned[:48]}"
-        return key
+            return f"{prefix}{key} — {cleaned[:48]}"
+        return f"{prefix}{key}"
 
     @staticmethod
     def _any_closed_phrase(captures: list[CaptureInfo], phrases: list[str]) -> bool:

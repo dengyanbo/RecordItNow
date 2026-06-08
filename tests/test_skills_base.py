@@ -118,6 +118,74 @@ def test_support_ticket_detect_no_match_returns_empty() -> None:
     assert SUPPORT_TICKET_SKILL.detect(ctx) == []
 
 
+def test_support_ticket_detect_numeric_case_id_gets_case_prefix() -> None:
+    """16-digit numeric IDs default to a `Case` bucket-title prefix."""
+
+    SUPPORT_TICKET_SKILL.config = SUPPORT_TICKET_SKILL.Config()
+    SUPPORT_TICKET_SKILL._compiled = []
+    ctx = _ctx(summary="Working on 2606050030000773 for ACME login issue")
+    refs = SUPPORT_TICKET_SKILL.detect(ctx)
+    assert len(refs) == 1
+    assert refs[0].key == "2606050030000773"
+    assert refs[0].title.startswith("Case 2606050030000773")
+
+
+def test_support_ticket_detect_19_digit_task_id_gets_task_prefix() -> None:
+    """19-digit numeric IDs default to a `Task` bucket-title prefix."""
+
+    SUPPORT_TICKET_SKILL.config = SUPPORT_TICKET_SKILL.Config()
+    SUPPORT_TICKET_SKILL._compiled = []
+    ctx = _ctx(summary="Updated 2606010050000901001 status: in progress")
+    refs = SUPPORT_TICKET_SKILL.detect(ctx)
+    assert len(refs) == 1
+    assert refs[0].key == "2606010050000901001"
+    assert refs[0].title.startswith("Task 2606010050000901001")
+
+
+def test_support_ticket_detect_19_digit_does_not_also_match_inner_16() -> None:
+    """Word-boundary anchors prevent a 19-digit task ID from also
+    producing a phantom 16-digit case bucket from its prefix."""
+
+    SUPPORT_TICKET_SKILL.config = SUPPORT_TICKET_SKILL.Config()
+    SUPPORT_TICKET_SKILL._compiled = []
+    ctx = _ctx(summary="Reviewing collab task 2606010050000901001 today.")
+    refs = SUPPORT_TICKET_SKILL.detect(ctx)
+    keys = [r.key for r in refs]
+    assert keys == ["2606010050000901001"]
+
+
+def test_support_ticket_detect_mixed_case_and_task_in_same_capture() -> None:
+    SUPPORT_TICKET_SKILL.config = SUPPORT_TICKET_SKILL.Config()
+    SUPPORT_TICKET_SKILL._compiled = []
+    ctx = _ctx(
+        summary=(
+            "Touched case 2606050030000773 and follow-up task "
+            "2606010050000901001 in the same review."
+        )
+    )
+    refs = {r.key: r.title for r in SUPPORT_TICKET_SKILL.detect(ctx)}
+    assert set(refs) == {"2606050030000773", "2606010050000901001"}
+    assert refs["2606050030000773"].startswith("Case ")
+    assert refs["2606010050000901001"].startswith("Task ")
+
+
+def test_support_ticket_detect_user_override_drops_default_labels() -> None:
+    """Overriding id_patterns without id_labels yields empty prefixes
+    so legacy custom regexes don't get accidentally labelled `Task`."""
+
+    SUPPORT_TICKET_SKILL.config = SUPPORT_TICKET_SKILL.Config(
+        id_patterns=[r"\bJIRA-\d+\b"],
+    )
+    SUPPORT_TICKET_SKILL._compiled = []
+    ctx = _ctx(summary="Working on JIRA-987 today.")
+    refs = SUPPORT_TICKET_SKILL.detect(ctx)
+    assert len(refs) == 1
+    # No prefix at all — the title is just the key (no leading "Task " /
+    # "Case "/ etc.) because labels do not align with patterns.
+    assert not refs[0].title.startswith(("Task ", "Case "))
+    assert refs[0].title.startswith("JIRA-987")
+
+
 def test_support_ticket_only_first_match_flag() -> None:
     SUPPORT_TICKET_SKILL.config = SUPPORT_TICKET_SKILL.Config(only_first_match=True)
     ctx = _ctx(summary="Touched INC0012345 and CASE0001234 in same session")
