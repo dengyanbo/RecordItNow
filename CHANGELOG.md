@@ -2,6 +2,38 @@
 
 All notable changes to RIN — Record It Now.
 
+## v0.8.1 — Stability + ergonomics polish (2026-06-08)
+
+Six days after v0.8.0, rolling up three non-breaking post-release
+improvements into a maintenance bump. No new wizards, no new APIs —
+just stability and quality-of-life fixes the v0.8.0 launch surfaced.
+
+### Highlights
+- **Single-instance enforcement** — A second `RIN.exe` launch (double
+  click, autostart re-fire, etc.) detects the running tray via an OS
+  lock on `%LOCALAPPDATA%\RIN\.lock` and exits silently with a friendly
+  MessageBox pointing at the tray. No more duplicate hotkeys or
+  concurrent SQLite writers. `--smoke` bypasses the gate;
+  `RIN_SUPPRESS_DUP_DIALOG=1` skips the modal for unattended launchers.
+- **Numeric case + collab task IDs** — `support_ticket` skill now
+  recognises 16-digit case IDs (`2606050030000773`) and 19-digit collab
+  task IDs (`2606010050000901001`) out of the box, with a configurable
+  `id_labels` setting that prepends `Case` / `Task` to bucket titles.
+- **True one-click installer** — Single `RIN-v0.8.1-windows-installer.zip`
+  asset replaces the previous two-zip split. End-user flow is now
+  literally *download → extract → double-click `Install.bat`*; the
+  bundle ships pre-extracted so install completes in ~19 s.
+
+### Other fixes
+- `pyproject.toml` version corrected (was stale at `0.7.1`).
+
+### Tests
+- 371 / 371 pytest pass (was 366; +5 single-instance tests).
+- ruff clean across `src/`, `tests/`, and `scripts/`.
+
+See the detailed "Post-release" subsections under v0.8.0 below for
+implementation specifics on each item.
+
 ## v0.8.0 — PoI-centric Skills Workflow — turn passive captures into topic-organised reports
 
 PoIs ("Points of Interest") let RIN track the people, projects,

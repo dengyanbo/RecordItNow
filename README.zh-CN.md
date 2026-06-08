@@ -148,8 +148,8 @@
 
 ## 项目状态
 
-- 当前版本：**v0.8.0**（2026-06-02 发布）
-- **361 / 361 pytest 通过** · ruff 清洁
+- 当前版本：**v0.8.1**（2026-06-08 发布）
+- **371 / 371 pytest 通过** · ruff 清洁
 - CI 在 Windows + Python 3.11 / 3.12 上绿
 - 完整发布历史：[`CHANGELOG.md`](CHANGELOG.md)
 - 想贡献或扩展？读 [`DEVELOPING.md`](DEVELOPING.md)

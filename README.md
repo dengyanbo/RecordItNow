@@ -149,8 +149,8 @@ Want sequence diagrams + per-module rationale? See
 
 ## Project status
 
-- Current: **v0.8.0** (released 2026-06-02)
-- **361 / 361 pytest** pass · ruff clean
+- Current: **v0.8.1** (released 2026-06-08)
+- **371 / 371 pytest** pass · ruff clean
 - CI green on Python 3.11 + 3.12 on `windows-latest`
 - Full release history: [`CHANGELOG.md`](CHANGELOG.md)
 - Want to contribute or extend? Read [`DEVELOPING.md`](DEVELOPING.md)
