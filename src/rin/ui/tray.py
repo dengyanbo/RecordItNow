@@ -8,6 +8,7 @@ so the Qt main thread never blocks on disk I/O.
 from __future__ import annotations
 
 import contextlib
+import webbrowser
 from collections.abc import Callable
 
 from PySide6.QtCore import QObject, QPoint, QRunnable, Qt, QThreadPool, QTimer, Signal
@@ -20,8 +21,10 @@ from ..config import RinConfig, TriggerBinding
 from ..input import InputManager
 from ..reports import ReportsScheduler
 from ..skills.scheduler import BucketScheduler
+from ..utils import updater
 from ..utils.logging import get_logger
 from ..utils.panic import PanicHotkey
+from ..utils.updater import UpdateInfo
 from .icon import PulseIconAnimator, make_icon
 from .notifications import attach as attach_tray_notifier
 from .notifications import notify
@@ -58,6 +61,14 @@ class TrayApp(QObject):
     _analysis_progress_received = Signal(int, int, int)  # (index, total, capture_id)
     _analysis_finished_received = Signal(int, int)       # (succeeded, total)
 
+    # Queued signal so QThreadPool workers can deliver the GitHub
+    # API result to the Qt main thread before we touch the tray
+    # (showMessage / notify must run on the main thread).
+    #
+    # Payload: (info_or_none, was_manual_click). info=None means
+    # "already up to date" or "request failed silently".
+    _update_check_completed = Signal(object, bool)
+
     def __init__(
         self,
         config: RinConfig,
@@ -83,6 +94,8 @@ class TrayApp(QObject):
         self._menu = QMenu()
         self._build_menu()
         self.tray.setContextMenu(self._menu)
+        self._pending_update_url: str | None = None
+        self.tray.messageClicked.connect(self._open_pending_update_page)
         attach_tray_notifier(self.tray)
         self._pulse = PulseIconAnimator(self.tray, theme=self._current_theme(), parent=self)
 
@@ -102,6 +115,9 @@ class TrayApp(QObject):
         )
         self._analysis_finished_received.connect(
             self._on_analysis_finished_main, Qt.ConnectionType.QueuedConnection
+        )
+        self._update_check_completed.connect(
+            self._on_update_check_completed, Qt.ConnectionType.QueuedConnection
         )
         self.analysis_scheduler.set_progress_callback(
             self._analysis_progress_received.emit,
@@ -129,6 +145,9 @@ class TrayApp(QObject):
             "RIN started",
             "Press your trigger button to capture. Ctrl+Alt+Shift+P to pause.",
         )
+        # v0.9.0: opportunistic update check 3 s after boot. Failures are
+        # silent; new-version balloons only.
+        QTimer.singleShot(3000, self._maybe_check_for_updates_on_startup)
 
     def _prewarm_menu(self) -> None:
         """Pay Qt's first-popup cost off the user's interaction path.
@@ -215,6 +234,12 @@ class TrayApp(QObject):
         self._diagnostic_action = QAction("🩺 Generate diagnostic report", self)
         self._diagnostic_action.triggered.connect(self._generate_diagnostic)
         self._menu.addAction(self._diagnostic_action)
+
+        self._menu.addSeparator()
+
+        self._update_check_action = QAction("🔄 Check for updates…", self)
+        self._update_check_action.triggered.connect(self._check_for_updates_manual)
+        self._menu.addAction(self._update_check_action)
 
         self._menu.addSeparator()
 
@@ -363,6 +388,84 @@ class TrayApp(QObject):
                 subprocess.Popen(["explorer.exe", "/select,", str(path)])
 
         self._pool.start(_Task(_do))
+
+    # --- update checks ------------------------------------------------------------
+
+    def _check_for_updates_manual(self) -> None:
+        """User clicked the tray menu entry — bypass the 24 h throttle."""
+
+        self._update_check_action.setEnabled(False)
+        notify("Checking for updates…", "Pinging GitHub for the latest RIN release.")
+        self._pool.start(_Task(lambda: self._run_update_check(manual=True)))
+
+    def _maybe_check_for_updates_on_startup(self) -> None:
+        """Quiet auto-check fired ~3 s after start.
+
+        Respects ``config.auto_check_updates`` (opt-out) and the updater
+        module's own 24 h throttle. On startup we suppress the "up to date"
+        balloon — only NEW versions raise a notification.
+        """
+
+        if not self.config.auto_check_updates:
+            return
+        self._pool.start(_Task(lambda: self._run_update_check(manual=False)))
+
+    def _run_update_check(self, *, manual: bool) -> None:
+        """Worker-thread body: call the updater, marshal back via signal."""
+
+        try:
+            info = updater.check_for_update(force=manual)
+        except Exception as exc:
+            log.warning(f"Update check raised: {exc}")
+            info = None
+        # Always marshal — even on None — so the UI can re-enable the menu
+        # action and (for manual checks) toast the result.
+        self._update_check_completed.emit(info, manual)
+
+    def _on_update_check_completed(self, info: object, was_manual: bool) -> None:
+        """Main-thread side: re-enable menu, toast based on outcome."""
+
+        if hasattr(self, "_update_check_action"):
+            self._update_check_action.setEnabled(True)
+
+        # UpdateInfo or None — only show "up to date" for manual checks
+        # so we don't spam users on every startup.
+        if info is None:
+            self._pending_update_url = None
+            if was_manual:
+                notify(
+                    "You're on the latest version",
+                    f"RIN v{self._current_version()} is up to date.",
+                )
+            return
+
+        # Type narrowing — we know this is an UpdateInfo when not None.
+        assert isinstance(info, UpdateInfo)
+        self._pending_update_url = info.html_url
+        size_hint = f" (~{info.asset_size_mb:.0f} MB)" if info.asset_size_mb else ""
+        notify(
+            f"RIN v{info.latest} is available",
+            f"You're on v{self._current_version()}. "
+            f"Click the notification to open the release page{size_hint}.",
+        )
+
+    def _current_version(self) -> str:
+        from .. import __version__
+
+        return __version__
+
+    def _open_pending_update_page(self) -> None:
+        if self._pending_update_url is None:
+            return
+        url = self._pending_update_url
+        self._pending_update_url = None
+        self._open_release_page(url)
+
+    def _open_release_page(self, url: str) -> None:
+        try:
+            webbrowser.open(url, new=2)
+        except Exception as exc:
+            log.warning(f"Could not open release URL {url}: {exc}")
 
     def _on_analysis_progress(self, index: int, total: int, capture_id: int) -> None:
         """Per-capture progress, fires on the APScheduler worker thread.

@@ -14,6 +14,7 @@ form whose labels sit *above* their inputs with explicit field widths.
 """
 from __future__ import annotations
 
+import webbrowser
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -46,12 +47,37 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .. import __version__
 from ..config import RinConfig, TriggerBinding
+from ..utils import updater
 from ..utils.logging import get_logger
+from ..utils.updater import UpdateInfo
 from .progress import Spinner
 from .theme import LIGHT, resolve, with_accent
 
 log = get_logger(__name__)
+
+
+class _UpdateCheckSignals(QObject):
+    finished = Signal(object)  # UpdateInfo | None
+
+
+class _UpdateCheckWorker(QRunnable):
+    """One-shot worker that calls the updater and emits the result on completion."""
+
+    def __init__(self, *, force: bool) -> None:
+        super().__init__()
+        self.force = force
+        self.signals = _UpdateCheckSignals()
+
+    def run(self) -> None:  # pragma: no cover - thread plumbing
+        try:
+            info = updater.check_for_update(force=self.force)
+        except Exception as exc:
+            log.warning(f"Update check raised: {exc}")
+            info = None
+        self.signals.finished.emit(info)
+
 
 LLM_NAMES = ["copilot_cli", "openai", "azure", "none"]
 REPORT_FREQUENCIES = ["daily", "weekly", "off"]
@@ -114,6 +140,7 @@ class SettingsDialog(QDialog):
         ("Data",          "save",      "Export or import your config, database, vectors, and reports."),
         ("Advanced",      "settings",  "Optional telemetry and troubleshooting controls."),
         ("Appearance",    "color",     "Theme, accent colour, and density."),
+        ("About",         "info",      "Version info and update checks."),
     )
 
     def __init__(
@@ -162,6 +189,7 @@ class SettingsDialog(QDialog):
         self._build_data_tab()
         self._build_advanced_tab()
         self._build_appearance_tab()
+        self._build_about_tab()
 
         self._nav.currentRowChanged.connect(self._stack.setCurrentIndex)
         self._nav.setCurrentRow(0)
@@ -380,6 +408,7 @@ class SettingsDialog(QDialog):
 
         c.telemetry.enabled = self._telemetry_enabled.isChecked()
         c.telemetry.dsn = self._telemetry_dsn.text().strip() or None
+        c.auto_check_updates = self._auto_check_updates_check.isChecked()
 
     def _export_everything(self) -> None:
         from ..utils.data_export import export_all
@@ -1244,6 +1273,90 @@ class SettingsDialog(QDialog):
 
         self._add_page(page)
 
+    def _build_about_tab(self) -> None:
+        page = QWidget()
+        form = self._form()
+        page.setLayout(form)
+
+        self._about_version_chip = QLabel(f"v{__version__}")
+        self._about_version_chip.setProperty("role", "chip")
+        self._about_version_chip.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        form.addRow(self._label("Installed version"), self._about_version_chip)
+
+        form.addRow(self._hint(
+            "RIN never auto-installs updates. The check below makes a single "
+            "HTTPS request to GitHub and, if a newer release exists, shows a "
+            "notification with a link to the download page."
+        ))
+
+        self._section_spacer(form)
+
+        self._auto_check_updates_check = QCheckBox(
+            "Automatically check GitHub for new releases on startup"
+        )
+        form.addRow(self._auto_check_updates_check)
+        form.addRow(self._hint(
+            "Throttled to once every 24 hours. Disable for fully offline operation."
+        ))
+
+        self._section_spacer(form)
+
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(12)
+        self._check_updates_btn = QPushButton("Check for updates now")
+        self._check_updates_btn.clicked.connect(self._on_check_updates_clicked)
+        row.addWidget(self._check_updates_btn)
+        self._check_updates_status = QLabel("")
+        self._check_updates_status.setProperty("role", "field-hint")
+        self._check_updates_status.setWordWrap(True)
+        row.addWidget(self._check_updates_status, 1)
+        form.addRow(_wrap(row))
+
+        self._release_link = QLabel("")
+        self._release_link.setOpenExternalLinks(True)
+        self._release_link.linkActivated.connect(self._open_release_link)
+        self._release_link.setProperty("role", "field-hint")
+        self._release_link.setWordWrap(True)
+        self._release_link.setVisible(False)
+        form.addRow(self._release_link)
+
+        self._add_page(page)
+
+    @staticmethod
+    def _open_release_link(url: str) -> None:
+        webbrowser.open(url)
+
+    def _on_check_updates_clicked(self) -> None:
+        self._check_updates_btn.setEnabled(False)
+        self._check_updates_status.setText("Checking…")
+        self._release_link.setVisible(False)
+
+        worker = _UpdateCheckWorker(force=True)
+        worker.signals.finished.connect(
+            self._on_check_updates_finished,
+            Qt.ConnectionType.QueuedConnection,
+        )
+        QThreadPool.globalInstance().start(worker)
+
+    def _on_check_updates_finished(self, info: object) -> None:
+        self._check_updates_btn.setEnabled(True)
+        if info is None:
+            self._check_updates_status.setText(
+                f"You're on the latest version (v{__version__})."
+            )
+            self._release_link.setVisible(False)
+            return
+        assert isinstance(info, UpdateInfo)
+        size_hint = f" (~{info.asset_size_mb:.0f} MB)" if info.asset_size_mb else ""
+        self._check_updates_status.setText(
+            f"RIN v{info.latest} is available{size_hint}."
+        )
+        self._release_link.setText(
+            f'<a href="{info.html_url}">Open the release page in your browser</a>'
+        )
+        self._release_link.setVisible(True)
+
     # --- load / save --------------------------------------------------------------
 
     def load_from_config(self) -> None:
@@ -1302,6 +1415,7 @@ class SettingsDialog(QDialog):
         self._telemetry_enabled.setChecked(c.telemetry.enabled)
         self._telemetry_dsn.setText(c.telemetry.dsn or "")
         self._sync_telemetry_state()
+        self._auto_check_updates_check.setChecked(c.auto_check_updates)
 
         # Appearance tab.
         self._theme_radios[c.ui.theme].setChecked(True)

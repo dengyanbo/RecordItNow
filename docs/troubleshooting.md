@@ -47,6 +47,25 @@ python --version
 If you have multiple Pythons, ensure the right one is on PATH inside
 the `.venv` you created with `uv venv`.
 
+### Install fails with "cannot remove file in use" / robocopy error
+
+This usually means RIN was still running when you launched the
+installer. Since v0.9.0 the installer detects this and asks RIN to
+quit, but if the auto-close fails:
+
+1. Look for the RIN icon in the system tray (bottom-right). Right-click → Quit.
+2. If the tray icon is missing but `Get-Process RIN` shows a process,
+   force-kill it:
+
+   ```powershell
+   Stop-Process -Name RIN -Force
+   ```
+
+3. Re-run `Install.bat`.
+
+The lock file at `%LOCALAPPDATA%\RIN\.lock` is released automatically
+by the OS when the process dies — you don't need to delete it manually.
+
 ---
 
 ## Capture

@@ -33,6 +33,17 @@ Captures, logs, and the database live in
     %LOCALAPPDATA%\RIN\
 They are kept across reinstalls and upgrades.
 
+UPGRADING
+---------
+To install a newer version on top of an existing one:
+
+1. Quit RIN from the system tray (right-click icon -> Quit).
+2. Download the new RIN-vX.Y.Z-windows-installer.zip.
+3. Extract it and double-click Install.bat as you did the first time.
+
+Your captures, database, logs and models live in %LOCALAPPDATA%\RIN
+and are kept across upgrades.
+
 ADVANCED OPTIONS
 ----------------
 Open a PowerShell window in the extracted folder and run install.ps1

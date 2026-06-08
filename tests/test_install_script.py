@@ -60,3 +60,25 @@ def test_prefetch_branch_references_script(script_text: str) -> None:
 def test_start_menu_shortcut_uses_pythonw(script_text: str) -> None:
     # pythonw avoids the black console window when the user launches from Start Menu.
     assert "pythonw.exe" in script_text
+
+
+def test_install_script_has_stop_running_rin_helper(script_text: str) -> None:
+    """v0.9.0: installer must close a running RIN before overwriting the bundle."""
+    assert "function Stop-RunningRin" in script_text
+    assert "CloseMainWindow" in script_text
+    assert "Stop-Process" in script_text
+
+
+def test_install_script_calls_stop_running_rin_before_remove(script_text: str) -> None:
+    """The hardening call must happen BEFORE the Remove-Item that wipes InstallDir."""
+    stop_idx = script_text.find("Stop-RunningRin -InstallDir $InstallDir")
+    remove_idx = script_text.find("Remove-Item -Recurse -Force $InstallDir")
+    assert stop_idx != -1, "expected Stop-RunningRin call site"
+    assert remove_idx != -1, "expected Remove-Item -Recurse -Force $InstallDir site"
+    assert stop_idx < remove_idx, "Stop-RunningRin must run before Remove-Item"
+
+
+def test_install_script_has_retry_helper(script_text: str) -> None:
+    """Remove-Item should be wrapped in Invoke-WithRetry with exponential backoff."""
+    assert "function Invoke-WithRetry" in script_text
+    assert "Invoke-WithRetry -Label" in script_text

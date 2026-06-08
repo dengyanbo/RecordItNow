@@ -170,6 +170,12 @@ class RinConfig(BaseModel):
     paused: bool = False
     autostart: bool = False
     first_run_completed: bool = False
+    # v0.9.0: when True, RIN performs a single HTTPS GET to the GitHub
+    # Releases API once every 24 h to check whether a newer version
+    # exists. It never downloads or installs anything — only notifies
+    # via a tray balloon. Turn off in Settings → About if you'd rather
+    # not have any outbound network traffic from RIN itself.
+    auto_check_updates: bool = True
     trigger: TriggerBinding = Field(default_factory=TriggerBinding)
     working_hours: WorkingHours = Field(default_factory=WorkingHours)
     llm: LLMProviderConfig = Field(default_factory=LLMProviderConfig)

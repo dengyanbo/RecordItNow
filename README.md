@@ -2,7 +2,7 @@
 
 > **Languages:** **English** · [中文](README.zh-CN.md) · **Building or contributing?** see [`docs/DEVELOPING.md`](docs/DEVELOPING.md)
 
-[![tests](https://img.shields.io/badge/tests-371%20%2F%20371-brightgreen)](docs/DEVELOPING.md#testing)
+[![tests](https://img.shields.io/badge/tests-402%20%2F%20402-brightgreen)](docs/DEVELOPING.md#testing)
 [![python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)](#requirements)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D4)](#requirements)
@@ -52,6 +52,16 @@ After install:
 - **Data lives under:** `%LOCALAPPDATA%\RIN\` (config, captures, reports, vector index, logs).
 - **Quit:** tray menu → *Quit*, or **Ctrl+Alt+Shift+P** to pause.
 - **One process at a time:** a second launch (double-clicked shortcut, autostart re-fire) detects the running instance and exits with a tray-pointer popup — no duplicate hotkeys or DB writers.
+
+## Updating
+
+1. Download the newest `RIN-vX.Y.Z-windows-installer.zip` from the
+   [Releases page](https://github.com/dengyanbo/RecordItNow/releases).
+2. Quit RIN from the tray (right-click the system-tray icon → Quit).
+3. Extract the zip and double-click `Install.bat`.
+
+Your captures, database, logs and downloaded models live in
+`%LOCALAPPDATA%\RIN\` and are **kept across updates**.
 
 ---
 
@@ -149,8 +159,8 @@ Want sequence diagrams + per-module rationale? See
 
 ## Project status
 
-- Current: **v0.8.1** (released 2026-06-08)
-- **371 / 371 pytest** pass · ruff clean
+- Current: **v0.9.0** (released 2026-06-08)
+- **402 / 402 pytest** pass · ruff clean
 - CI green on Python 3.11 + 3.12 on `windows-latest`
 - Full release history: [`docs/CHANGELOG.md`](docs/CHANGELOG.md)
 - Want to contribute or extend? Read [`docs/DEVELOPING.md`](docs/DEVELOPING.md)

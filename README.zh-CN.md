@@ -2,7 +2,7 @@
 
 > **Languages:** [English](README.md) · **中文** · **开发或贡献？** 见 [`docs/DEVELOPING.md`](docs/DEVELOPING.md)
 
-[![tests](https://img.shields.io/badge/tests-371%20%2F%20371-brightgreen)](docs/DEVELOPING.md#testing)
+[![tests](https://img.shields.io/badge/tests-402%20%2F%20402-brightgreen)](docs/DEVELOPING.md#testing)
 [![python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)](#要求)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D4)](#要求)
@@ -51,6 +51,16 @@
 - **数据位置**：`%LOCALAPPDATA%\RIN\`（配置、截图、报告、向量库、日志）
 - **退出**：托盘菜单 → *Quit*，或 **Ctrl+Alt+Shift+P** 暂停
 - **进程单例**：第二次启动（双击图标、自启动重复触发）会自动检测到正在运行的实例并优雅退出，弹出小提示指向系统托盘；不会出现重复全局热键或并发数据库写入。
+
+## 更新
+
+1. 从 [Releases page](https://github.com/dengyanbo/RecordItNow/releases)
+   下载最新的 `RIN-vX.Y.Z-windows-installer.zip`。
+2. 从托盘退出 RIN（右键系统托盘图标 → Quit）。
+3. 解压 zip，然后双击 `Install.bat`。
+
+你的截图、录制、数据库、日志和已下载模型都在
+`%LOCALAPPDATA%\RIN\`，**更新时会保留**。
 
 ---
 
@@ -148,8 +158,8 @@
 
 ## 项目状态
 
-- 当前版本：**v0.8.1**（2026-06-08 发布）
-- **371 / 371 pytest 通过** · ruff 清洁
+- 当前版本：**v0.9.0**（2026-06-08 发布）
+- **402 / 402 pytest 通过** · ruff 清洁
 - CI 在 Windows + Python 3.11 / 3.12 上绿
 - 完整发布历史：[`docs/CHANGELOG.md`](docs/CHANGELOG.md)
 - 想贡献或扩展？读 [`docs/DEVELOPING.md`](docs/DEVELOPING.md)

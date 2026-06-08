@@ -2,6 +2,69 @@
 
 All notable changes to RIN — Record It Now.
 
+## v0.9.0 — In-app update story (2026-06-08)
+
+Five hours after v0.8.1, shipping the missing update story end-to-end:
+an in-app version check, a hardened installer that handles upgrades on
+top of a running RIN, and the documentation that explains the flow to
+end users. **Zero new Python dependencies** — the updater is stdlib-only
+(`urllib` + `json`) and the privacy posture is unchanged: RIN still
+never auto-downloads or auto-installs anything; it just notifies and
+opens the GitHub release page in your browser.
+
+### New features
+- **In-app updater (`src/rin/utils/updater.py`)** — single outbound
+  HTTPS request to `api.github.com/repos/dengyanbo/RecordItNow/releases/latest`
+  with a 5 s timeout, throttled to once per 24 h via
+  `%LOCALAPPDATA%\RIN\.update-check.json`. Returns an `UpdateInfo` with
+  the latest tag, release URL, installer asset URL + size, and publish
+  date. Skips drafts and pre-releases. Silent on offline / 403 / parse
+  errors so the call is always safe to make in the background.
+- **Tray menu entry** — `🔄 Check for updates…` between the diagnostic
+  report and Quit actions. Click bypasses the 24 h throttle and toasts
+  either "RIN vX.Y.Z is available" (click the balloon to open the
+  release page) or "You're on the latest version".
+- **Settings → About tab** — installed version chip, "Check for updates
+  now" button + status label + release link, and an
+  "Automatically check on startup" toggle (default ON, opt-out).
+- **Startup auto-check** — 3 s after boot, RIN does a quiet
+  throttled check. Only NEW versions raise a tray balloon; the
+  "up to date" path is silent so we don't spam users every launch.
+  Honors `RinConfig.auto_check_updates` (new top-level field, default `True`).
+- **Installer hardening (`scripts/install.ps1`)** — detects a running
+  `RIN.exe` whose binary lives under the install dir, asks it to close
+  gracefully (`CloseMainWindow` + 5 s wait), then `Stop-Process -Force`
+  as fallback. `Remove-Item` is wrapped in `Invoke-WithRetry` with
+  1-2-4 s exponential backoff so the OS has time to release file
+  handles. Together these eliminate the "cannot remove file in use"
+  failure mode when re-running `Install.bat` to upgrade.
+
+### Docs
+- **README + README.zh-CN** — new "Updating" / "更新" section under
+  Install describing the download → quit → double-click flow and
+  reassuring that `%LOCALAPPDATA%\RIN\` data is preserved.
+- **`scripts/README-INSTALL.txt`** — new ASCII "UPGRADING" block.
+- **`docs/troubleshooting.md`** — new "Install fails with 'cannot
+  remove file in use' / robocopy error" entry.
+- **`.github/SECURITY.md`** — replaced the stale "no auto-update"
+  blanket statement with the precise scope of the new check (one
+  outbound HTTPS call per 24 h, never auto-installs, opt-out in
+  Settings → About).
+
+### Privacy / network footprint
+- The update check is the only outbound network request RIN itself
+  initiates. It can be disabled entirely via Settings → About →
+  "Automatically check on startup" + never clicking "Check for
+  updates now". When disabled, RIN makes zero outbound requests
+  (LLM provider traffic is separate and only fires when you ask
+  for an analysis or summary).
+
+### Tests
+- **402 / 402 pytest pass** (was 371; +15 updater tests,
+  +1 config round-trip, +4 install-script parse tests,
+  +6 tray menu/handler tests, +6 settings-about tests).
+- ruff clean across `src/`, `tests/`, and `scripts/`.
+
 ## v0.8.1 — Stability + ergonomics polish (2026-06-08)
 
 Six days after v0.8.0, rolling up three non-breaking post-release

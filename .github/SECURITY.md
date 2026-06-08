@@ -9,7 +9,7 @@ unless you explicitly enable an LLM provider that uses a hosted API
 *summarised text* of a capture is sent to the LLM, never the raw PNG or
 MP4 file.
 
-There is currently no telemetry, no analytics, and no auto-update.
+There is currently no telemetry and no analytics. Starting in v0.9.0 RIN can check GitHub for new releases (single outbound HTTPS request to api.github.com once every 24 hours), but it never downloads or installs anything automatically — you click through to the browser and run the installer manually. Disable the check in Settings → About if you don't want it.
 
 ## Where secrets live
 

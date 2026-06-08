@@ -106,6 +106,96 @@ function Write-OK      { param([string]$Msg) Write-Host "    [OK] $Msg" -Foregro
 function Write-Warn    { param([string]$Msg) Write-Host "    [!!] $Msg" -ForegroundColor Yellow }
 function Fail          { param([string]$Msg) Write-Host "    [XX] $Msg" -ForegroundColor Red; exit 1 }
 
+function Stop-RunningRin {
+    <#
+    .SYNOPSIS
+        Detect any RIN.exe process whose binary lives under $InstallDir
+        and shut it down cleanly, so the subsequent Remove-Item doesn't
+        fail with a sharing-violation error.
+
+    .PARAMETER InstallDir
+        The directory whose RIN.exe instances should be terminated.
+
+    .PARAMETER Force
+        If set, skip the prompt and kill silently.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$InstallDir,
+        [switch]$Force
+    )
+
+    $running = @(Get-Process -Name RIN -ErrorAction SilentlyContinue | Where-Object {
+        try { $_.Path -and $_.Path.StartsWith($InstallDir, [System.StringComparison]::OrdinalIgnoreCase) }
+        catch { $false }
+    })
+
+    if (-not $running -or $running.Count -eq 0) { return }
+
+    Write-Warn "RIN is currently running (PID $($running.Id -join ', ')) — must stop before overwrite."
+
+    if (-not $Force) {
+        $choice = Read-Host "    Stop the running RIN now? [Y/n]"
+        if ($choice -match '^[Nn]') { Fail "Aborted: please quit RIN from the tray then re-run the installer." }
+    }
+
+    # Graceful close first
+    foreach ($p in $running) {
+        try { $null = $p.CloseMainWindow() } catch { }
+    }
+
+    # Wait up to 5 s for graceful exit
+    $deadline = (Get-Date).AddSeconds(5)
+    while ((Get-Date) -lt $deadline) {
+        $still = @(Get-Process -Name RIN -ErrorAction SilentlyContinue | Where-Object {
+            try { $_.Path -and $_.Path.StartsWith($InstallDir, [System.StringComparison]::OrdinalIgnoreCase) }
+            catch { $false }
+        })
+        if (-not $still -or $still.Count -eq 0) {
+            Write-OK "RIN closed gracefully."
+            return
+        }
+        Start-Sleep -Milliseconds 250
+    }
+
+    # Force-kill fallback
+    Write-Warn "Graceful close timed out — force-killing."
+    foreach ($p in $running) {
+        try { Stop-Process -Id $p.Id -Force -ErrorAction Stop } catch {
+            Fail "Could not stop RIN (PID $($p.Id)): $($_.Exception.Message). Please quit it manually and re-run the installer."
+        }
+    }
+    # Small grace period for the OS to release file handles
+    Start-Sleep -Milliseconds 500
+    Write-OK "RIN process terminated."
+}
+
+function Invoke-WithRetry {
+    <#
+    .SYNOPSIS
+        Run a scriptblock up to 3 times with 1-2-4 second backoff.
+        Used to give Windows time to release file handles after RIN
+        exits.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][scriptblock]$Action,
+        [int]$MaxAttempts = 3,
+        [string]$Label = "operation"
+    )
+
+    $delay = 1
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        try {
+            & $Action
+            return
+        } catch {
+            if ($attempt -eq $MaxAttempts) { throw }
+            Write-Warn ("{0} failed (attempt {1}/{2}): {3} — retrying in {4}s..." -f $Label, $attempt, $MaxAttempts, $_.Exception.Message, $delay)
+            Start-Sleep -Seconds $delay
+            $delay *= 2
+        }
+    }
+}
+
 function Find-ExeBundleZip {
     foreach ($pattern in @(
         (Join-Path $PSScriptRoot 'RIN-v*-windows-exe.zip'),
@@ -209,8 +299,11 @@ if (Test-Path $InstallDir) {
         $choice = Read-Host "    A previous install was found. Overwrite? [y/N]"
         if ($choice -notmatch '^[Yy]') { Fail "Aborted by user." }
     }
+    Stop-RunningRin -InstallDir $InstallDir -Force:$Force
     if ($PSCmdlet.ShouldProcess($InstallDir, 'remove existing install')) {
-        Remove-Item -Recurse -Force $InstallDir
+        Invoke-WithRetry -Label "Remove-Item $InstallDir" -Action {
+            Remove-Item -Recurse -Force $InstallDir
+        }
     }
 }
 if ($PSCmdlet.ShouldProcess($InstallDir, 'create install directory')) {
