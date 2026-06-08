@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Install RIN — Record It Now on Windows.
 

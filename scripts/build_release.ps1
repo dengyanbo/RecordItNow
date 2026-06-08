@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Build a RIN release zip suitable for upload to GitHub Releases.
 

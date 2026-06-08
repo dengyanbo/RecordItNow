@@ -1,4 +1,4 @@
-# Dev launcher — activates the venv and starts RIN with the system tray.
+﻿# Dev launcher — activates the venv and starts RIN with the system tray.
 # Usage:  .\scripts\dev_run.ps1
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
