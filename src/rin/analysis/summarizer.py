@@ -273,10 +273,18 @@ def analyze_capture(
         log.warning(f"Skill classification failed for capture {capture_id}: {exc}")
         bucket_ids = []
 
+    # Phase 1-D (v0.13.0): both the cap and the window are
+    # config-driven via [skills] active_top_k and active_window_days.
+    active_top_k = max(0, int(getattr(cfg.skills, "active_top_k", _MAX_ACTIVE_POIS)))
+    active_window_days = max(
+        1, int(getattr(cfg.skills, "active_window_days", _RECENT_POI_WINDOW_DAYS))
+    )
     # If this capture didn't trip any topic, prefer the user's recently
     # touched topics so the prompt still has continuity, then cap.
-    active_pois = detected_pois or _recent_topic_pois(limit=_MAX_ACTIVE_POIS)
-    active_pois = active_pois[:_MAX_ACTIVE_POIS]
+    active_pois = detected_pois or _recent_topic_pois(
+        limit=active_top_k, window_days=active_window_days
+    )
+    active_pois = active_pois[:active_top_k]
 
     with session() as s:
         cap = s.get(Capture, capture_id)
@@ -484,17 +492,28 @@ def _topic_pois_from_buckets(bucket_ids: list[int]) -> list[str]:
     return out
 
 
-def _recent_topic_pois(*, limit: int = _MAX_ACTIVE_POIS) -> list[str]:
+def _recent_topic_pois(
+    *,
+    limit: int = _MAX_ACTIVE_POIS,
+    window_days: int = _RECENT_POI_WINDOW_DAYS,
+) -> list[str]:
     """Top-K topic POIs by most-recent ``CaptureBucket.created_at``.
 
     Used as the fallback when classify_capture returned no topic
     buckets for the current capture — keeps cross-capture continuity
     without flooding the prompt with every configured topic.
+
+    Phase 1-D (v0.13.0): both ``limit`` and ``window_days`` are now
+    driven by ``cfg.skills.active_top_k`` / ``active_window_days`` so
+    users can tune the decay envelope. Defaults preserve the v0.10.0
+    behavior (5 topics, 14 days).
     """
 
     if limit <= 0:
         return []
-    cutoff = datetime.now() - timedelta(days=_RECENT_POI_WINDOW_DAYS)
+    if window_days <= 0:
+        return []
+    cutoff = datetime.now() - timedelta(days=window_days)
     with session() as s:
         rows = s.execute(
             select(Bucket.title)

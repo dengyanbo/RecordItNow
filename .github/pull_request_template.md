@@ -19,7 +19,7 @@ Closes #
 ## Validation
 
 - [ ] `ruff check src tests scripts` is clean
-- [ ] `pytest -q` is green (current baseline: **457/457**)
+- [ ] `pytest -q` is green (current baseline: **470/470**)
 - [ ] If UI-visible, a before/after screenshot is included below
 
 <!-- before / after screenshots here if relevant -->

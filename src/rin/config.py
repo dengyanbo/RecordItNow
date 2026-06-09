@@ -81,6 +81,14 @@ class ReportsConfig(BaseModel):
     # "per_poi"       → always per_poi (uncategorized captures roll up at the bottom)
     # "chronological" → always chronological (the v0.7 behaviour)
     layout: Literal["auto", "per_poi", "chronological"] = "auto"
+    # Phase 1-D (v0.13.0) — noise filter.
+    # When True, captures that did not match any POI AND have very
+    # little signal text (< noise_min_ocr_chars chars of OCR/summary)
+    # are collapsed into a single footer "Light browsing (N captures)"
+    # line instead of individual entries. They remain searchable in
+    # RAG; this only affects per_poi report rendering.
+    skip_noise: bool = False
+    noise_min_ocr_chars: int = 100
 
 
 class StorageConfig(BaseModel):
@@ -152,6 +160,15 @@ class SkillsConfig(BaseModel):
     # slightly more I/O. 6h is a sane balance.
     closure_check_hours: int = 6
     poi_wizard_seen: bool = False
+    # Phase 1-D (v0.13.0) — active-POI window.
+    # When the summarizer falls back to "recent topics" (because the
+    # current capture did not match anything), it pulls the most
+    # recently touched topic buckets from the last ``active_window_days``
+    # days and caps the list at ``active_top_k``. Older / less-active
+    # POIs aren't dropped from the DB; they just stop polluting the
+    # per-capture prompt until they're hit again.
+    active_window_days: int = 30
+    active_top_k: int = 5
 
     model_config = {"extra": "allow"}
 

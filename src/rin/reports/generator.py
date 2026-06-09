@@ -223,6 +223,49 @@ def list_uncategorized_captures_for_period(period: ReportPeriod) -> list[Capture
     return [_capture_item_from_capture(capture) for capture in rows]
 
 
+# Phase 1-D (v0.13.0) — noise filter.
+# A capture qualifies as "noise" when (a) it isn't categorized to any
+# POI AND (b) its OCR + summary signal is below ``min_chars``. The
+# filter is opt-in via ``cfg.reports.skip_noise`` and never deletes
+# anything — noise captures stay searchable in RAG and remain in the
+# DB; they're just collapsed into a single footer line in the per_poi
+# report rendering.
+
+
+def _capture_signal_chars(item: CaptureItem) -> int:
+    summary_len = len(item.summary or "")
+    # Mirror the chunk join used in build_summary so single short
+    # captures (mostly white space) collapse correctly.
+    return summary_len
+
+
+def partition_uncategorized_noise(
+    uncategorized: list[CaptureItem],
+    *,
+    skip_noise: bool,
+    min_chars: int,
+) -> tuple[list[CaptureItem], list[CaptureItem]]:
+    """Split into ``(kept, noise)`` according to the filter setting.
+
+    When ``skip_noise=False`` the input is returned untouched as
+    ``(items, [])``. When True, captures whose summary text is below
+    ``min_chars`` move into the ``noise`` bucket. Threshold of zero
+    or negative is treated as "no noise filtering" so users can
+    disable the cut-off without flipping the toggle.
+    """
+
+    if not skip_noise or min_chars <= 0 or not uncategorized:
+        return list(uncategorized), []
+    kept: list[CaptureItem] = []
+    noise: list[CaptureItem] = []
+    for item in uncategorized:
+        if _capture_signal_chars(item) < min_chars:
+            noise.append(item)
+        else:
+            kept.append(item)
+    return kept, noise
+
+
 def _resolve_layout(cfg: RinConfig, sections: list[PoIReportSection]) -> str:
     layout = cfg.reports.layout
     if layout == "auto":
@@ -380,7 +423,12 @@ def generate_report(
             provider = None
 
     if layout == "per_poi":
-        uncategorized = list_uncategorized_captures_for_period(period)
+        uncategorized_all = list_uncategorized_captures_for_period(period)
+        uncategorized, noise = partition_uncategorized_noise(
+            uncategorized_all,
+            skip_noise=getattr(cfg.reports, "skip_noise", False),
+            min_chars=getattr(cfg.reports, "noise_min_ocr_chars", 100),
+        )
         _existing_report_id, cached_narratives = _load_cached_narratives(period)
         narratives = populate_poi_narratives(
             period,
@@ -394,6 +442,7 @@ def generate_report(
             poi_sections,
             uncategorized,
             provider=provider,
+            noise_count=len(noise),
         )
     else:
         narratives = {}
@@ -511,9 +560,12 @@ def _render_poi_grouped_body(
     uncategorized: list[CaptureItem],
     *,
     provider: Provider | None,
+    noise_count: int = 0,
 ) -> str:
     if provider is None or not items:
-        return _render_poi_grouped_offline(period, items, poi_sections, uncategorized)
+        return _render_poi_grouped_offline(
+            period, items, poi_sections, uncategorized, noise_count=noise_count
+        )
     prompt = POI_GROUPED_LLM_PROMPT.format(
         kind=period.kind,
         kind_title=period.kind.capitalize(),
@@ -521,16 +573,26 @@ def _render_poi_grouped_body(
         period_end=period.end.strftime("%Y-%m-%d %H:%M"),
         total_captures=len(items),
         topic_count=len(poi_sections),
-        material=_format_poi_material(poi_sections, uncategorized),
+        material=_format_poi_material(
+            poi_sections, uncategorized, noise_count=noise_count
+        ),
     )
     try:
-        return provider.analyze_text(
+        body = provider.analyze_text(
             prompt,
             system="You write concise markdown personal-activity reports.",
         )
     except LLMError as exc:
         log.warning(f"Per-PoI report LLM call failed; using offline template: {exc}")
-        return _render_poi_grouped_offline(period, items, poi_sections, uncategorized)
+        return _render_poi_grouped_offline(
+            period, items, poi_sections, uncategorized, noise_count=noise_count
+        )
+    if noise_count > 0 and "Light browsing" not in body:
+        body = body.rstrip() + (
+            f"\n\n_Light browsing: {noise_count} low-signal capture(s) "
+            "hidden by the noise filter._\n"
+        )
+    return body
 
 
 
@@ -539,6 +601,8 @@ def _render_poi_grouped_offline(
     items: list[CaptureItem],
     poi_sections: list[PoIReportSection],
     uncategorized: list[CaptureItem],
+    *,
+    noise_count: int = 0,
 ) -> str:
     try:
         from jinja2 import Template
@@ -548,6 +612,7 @@ def _render_poi_grouped_offline(
             items,
             poi_sections,
             uncategorized,
+            noise_count=noise_count,
         )
     tmpl = Template(POI_GROUPED_REPORT_TEMPLATE)
     return tmpl.render(
@@ -557,6 +622,7 @@ def _render_poi_grouped_offline(
         items=items,
         poi_sections=poi_sections,
         uncategorized=uncategorized,
+        noise_count=noise_count,
     )
 
 
@@ -596,6 +662,8 @@ def _render_poi_grouped_offline_plain(
     items: list[CaptureItem],
     poi_sections: list[PoIReportSection],
     uncategorized: list[CaptureItem],
+    *,
+    noise_count: int = 0,
 ) -> str:
     lines = [
         f"# RIN Report — {period.kind.capitalize()}",
@@ -634,6 +702,12 @@ def _render_poi_grouped_offline_plain(
             )
     else:
         lines.append("_All captures were categorized into a topic._")
+    if noise_count > 0:
+        lines.append("")
+        lines.append(
+            f"_Light browsing: {noise_count} low-signal capture(s) "
+            "hidden by the noise filter._"
+        )
     lines.extend(["", "---", "", "_Generated offline (no LLM provider available)._"])
     return "\n".join(lines)
 
@@ -690,6 +764,8 @@ def _format_material(items: list[CaptureItem]) -> str:
 def _format_poi_material(
     poi_sections: list[PoIReportSection],
     uncategorized: list[CaptureItem],
+    *,
+    noise_count: int = 0,
 ) -> str:
     lines = []
     for section in poi_sections:
@@ -716,6 +792,13 @@ def _format_poi_material(
                 f"{capture.started_at.strftime('%Y-%m-%d %H:%M')} — "
                 f"{(capture.summary or '(no summary)')[:600]}"
             )
+    if noise_count > 0:
+        lines.append("")
+        lines.append(
+            f"LIGHT_BROWSING: {noise_count} additional low-signal "
+            "capture(s) hidden by the noise filter. Add a one-line "
+            "footer mentioning this count."
+        )
     return "\n".join(lines).strip()
 
 

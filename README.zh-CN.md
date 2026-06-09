@@ -2,7 +2,7 @@
 
 > **Languages:** [English](README.md) · **中文** · **开发或贡献？** 见 [`docs/DEVELOPING.md`](docs/DEVELOPING.md)
 
-[![tests](https://img.shields.io/badge/tests-457%20%2F%20457-brightgreen)](docs/DEVELOPING.md#testing)
+[![tests](https://img.shields.io/badge/tests-470%20%2F%20470-brightgreen)](docs/DEVELOPING.md#testing)
 [![python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)](#要求)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D4)](#要求)
@@ -159,7 +159,7 @@
 ## 项目状态
 
 - 当前版本：**v0.9.1**（2026-06-09 发布）
-- **457 / 457 pytest 通过** · ruff 清洁
+- **470 / 470 pytest 通过** · ruff 清洁
 - CI 在 Windows + Python 3.11 / 3.12 上绿
 - 完整发布历史：[`docs/CHANGELOG.md`](docs/CHANGELOG.md)
 - 想贡献或扩展？读 [`docs/DEVELOPING.md`](docs/DEVELOPING.md)

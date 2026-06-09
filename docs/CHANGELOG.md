@@ -2,6 +2,52 @@
 
 All notable changes to RIN — Record It Now.
 
+## v0.13.0 — Active-POI decay + noise filter (Phase 1-D) (2026-06-09)
+
+Final POI-aware summarization release. Bounds the per-capture prompt
+size on machines with many tracked topics and lets users hide
+low-signal "light browsing" captures from the per_poi report layout.
+
+### What changed
+- **Active-POI decay.** Two new `[skills]` settings drive the
+  fallback active-POI list passed into `build_summary` when the
+  pre-classify step finds no detected POIs:
+  - `active_window_days: int = 30` — only topics touched within this
+    many days qualify (per `capture_buckets.created_at`).
+  - `active_top_k: int = 5` — caps the list to the K most-recently
+    touched topics within that window.
+  Defaults preserve v0.10.0/v0.11.0/v0.12.0 prompt behavior. Setting
+  `active_window_days = 0` disables the fallback entirely.
+- **Noise filter (opt-in).** Two new `[reports]` settings collapse
+  uncategorized captures with very little summary text into a single
+  footer line in per_poi reports:
+  - `skip_noise: bool = False` — off by default; zero behavior change.
+  - `noise_min_ocr_chars: int = 100` — summaries shorter than this
+    count as "light browsing" when `skip_noise=True`.
+  Noise captures are NEVER deleted: they stay in the SQLite DB and
+  stay searchable through RAG. They just collapse to
+  `_Light browsing: N low-signal capture(s) hidden by the noise
+  filter._` in the per_poi rendering (offline + LLM + Jinja paths).
+  Set `noise_min_ocr_chars = 0` to neutralize the filter even with
+  the toggle on.
+
+### Tests
+- `tests/test_active_pois_and_noise_filter.py` (13 tests) — window
+  shrinks the fallback list, top-K=2 keeps only two newest topics,
+  window=0 / limit=0 return empty, defaults match Phase 1-A
+  constants, partition returns all captures when off, partitions
+  short captures when on, threshold ≤ 0 disables, `None` summary
+  treated as zero, offline renderer appends the footer when
+  `noise_count > 0`, end-to-end report contains
+  `"Light browsing: 2 low-signal"` when toggled on, default-off path
+  still renders the short capture individually.
+- Total: 470 passed (was 457).
+
+### Compatibility
+- No schema migration. All four new fields are pure config additions.
+- All four defaults preserve v0.12.0 behavior — upgrading users see
+  zero change until they opt in via `config.toml`.
+
 ## v0.12.0 — Bucket-aware RAG + per-POI narrative reports (Phase 1-C) (2026-06-09)
 
 Third of four POI-aware summarization releases. Pushes detected POI

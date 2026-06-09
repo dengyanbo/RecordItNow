@@ -88,6 +88,10 @@ POI_GROUPED_REPORT_TEMPLATE = """# RIN Report — {{ kind|title }}
 _All captures were categorized into a topic._
 {% endif %}
 
+{% if noise_count and noise_count > 0 %}
+_Light browsing: {{ noise_count }} low-signal capture(s) hidden by the noise filter._
+{% endif %}
+
 ---
 
 _Generated offline (no LLM provider available)._

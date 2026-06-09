@@ -53,7 +53,7 @@
 | `src/rin/reports/` | Daily / weekly Markdown generator + APScheduler + FTS5 search + PDF/HTML export + Outlook/Google Calendar integrations. |
 | `src/rin/ui/` | PySide6 tray + Settings shell/tabs + Reports + Search + first-run Wizard + Spinner/BusyOverlay progress widgets. `theme.py` + `style.py` own the QSS design tokens. |
 | `src/rin/utils/` | Logging (loguru), autostart, panic hotkey, encryption (AES-256-GCM + DPAPI), thumbnail (PIL), data export, telemetry (Sentry), diagnostics, single-instance lock, platform_compat dispatcher. |
-| `tests/` | 457 tests, all green. Run with `pytest -q`. Layout mirrors `src/rin/`. |
+| `tests/` | 470 tests, all green. Run with `pytest -q`. Layout mirrors `src/rin/`. |
 | `scripts/` | `install.ps1` (user installer), `build_release.ps1` (source zip), `build_exe.ps1` + `RIN.spec` (PyInstaller .exe), `prefetch_models.py`, `dev_run.ps1`, `capture_ui_screenshots.py`. |
 
 ## Data flow — one tap to a searchable answer
@@ -346,7 +346,7 @@ Optional extras (declared in `pyproject.toml`):
 ## Testing
 
 ```powershell
-pytest -q                              # all 457 tests, ~60-90 s on a warm cache
+pytest -q                              # all 470 tests, ~60-90 s on a warm cache
 pytest -q --cov=rin --cov-report=term-missing  # with coverage
 pytest tests/test_perf_*.py            # pytest-benchmark suite
 ruff check src tests scripts
