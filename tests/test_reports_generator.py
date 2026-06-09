@@ -1,7 +1,7 @@
 """Report generator tests."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from pathlib import Path
 
 import pytest
@@ -47,7 +47,12 @@ class _FakeProvider(Provider):
 
 
 def _seed_captures(days_ago: int) -> int:
-    start = datetime.now() - timedelta(days=days_ago, hours=2)
+    # Anchor to noon of the target calendar day so the capture always lands
+    # inside ``daily_period()`` (= yesterday 00:00 → today 00:00) regardless of
+    # the wall-clock time when the test runs. Previously ``now - days - 2h``
+    # could leak into the day-before-yesterday when run between 00:00 and 02:00.
+    target_day = (datetime.now() - timedelta(days=days_ago)).date()
+    start = datetime.combine(target_day, time(12, 0))
     with session() as s:
         cap = Capture(
             kind="screenshot",

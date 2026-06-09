@@ -82,3 +82,42 @@ def test_install_script_has_retry_helper(script_text: str) -> None:
     """Remove-Item should be wrapped in Invoke-WithRetry with exponential backoff."""
     assert "function Invoke-WithRetry" in script_text
     assert "Invoke-WithRetry -Label" in script_text
+
+
+def test_install_script_has_resolve_winget_path_helper(script_text: str) -> None:
+    """v0.9.1: winget resolution must prefer the current user's WindowsApps
+    directory so a stale alias from another user (a known Windows multi-user
+    quirk) doesn't surface as 'The system cannot find the path specified'."""
+
+    assert "function Resolve-WingetPath" in script_text
+    # Must probe the per-user LOCALAPPDATA path before falling back to PATH.
+    assert "$env:LOCALAPPDATA" in script_text
+    assert "Microsoft\\WindowsApps\\winget.exe" in script_text
+
+
+def test_install_winget_invocation_uses_resolved_path(script_text: str) -> None:
+    """v0.9.1: Install-PackageViaWinget must invoke the resolved absolute
+    path ($wingetPath), NOT a bare 'winget' lookup that re-triggers the
+    multi-user bug."""
+
+    # The helper must be called from Install-PackageViaWinget.
+    install_block_start = script_text.find("function Install-PackageViaWinget")
+    assert install_block_start != -1, "expected Install-PackageViaWinget function"
+    # Find the end of the function (next 'function ' at top level, or end of file).
+    next_fn = script_text.find("\nfunction ", install_block_start + 1)
+    if next_fn == -1:
+        next_fn = len(script_text)
+    block = script_text[install_block_start:next_fn]
+
+    assert "Resolve-WingetPath" in block, (
+        "Install-PackageViaWinget must call Resolve-WingetPath to get an absolute path"
+    )
+    assert "& $wingetPath install" in block, (
+        "Install-PackageViaWinget must invoke the resolved $wingetPath, "
+        "not a bare 'winget' which triggers the multi-user resolution bug."
+    )
+    # And the old buggy form must be gone from this block.
+    assert "& winget install" not in block, (
+        "Bare '& winget install' must not appear in Install-PackageViaWinget — "
+        "it can resolve to another user's App Execution Alias on multi-user machines."
+    )

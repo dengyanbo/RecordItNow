@@ -2,6 +2,66 @@
 
 All notable changes to RIN — Record It Now.
 
+## v0.9.1 — Installer winget multi-user fix (2026-06-09)
+
+Bugfix release. Same day as v0.9.0. Fixes a real install failure
+reported on a shared Windows machine where two user profiles (`yanden`
+and `Yanbo`) both had ever launched `winget`.
+
+### What broke
+On multi-user Windows machines the App Execution Alias for `winget.exe`
+can resolve to **another** user's per-user shim under
+`C:\Users\<other>\AppData\Local\Microsoft\WindowsApps\winget.exe`. The
+current user can't launch that file, so the FFmpeg install step
+crashed with:
+
+```
+Program 'winget.exe' failed to run: An error occurred trying to start
+process 'C:\Users\<other>\AppData\Local\Microsoft\WindowsApps\winget.exe'
+... The system cannot find the path specified.
+```
+
+Root cause: `Install-PackageViaWinget` was calling `& winget install …`
+and trusting PATH resolution. On a multi-user box that resolution
+isn't guaranteed to be the current user's shim.
+
+### The fix
+New `Resolve-WingetPath` helper in `scripts/install.ps1`:
+
+1. Probes `$env:LOCALAPPDATA\Microsoft\WindowsApps\winget.exe` first —
+   this is **per-user** by construction so it's always the right shim
+   for the current process owner.
+2. Falls back to `Get-Command winget` only if the per-user path doesn't
+   exist.
+3. **Verifies** the candidate actually launches via `--version` before
+   returning — a stale alias from a different user fails this probe.
+4. Returns the absolute resolved path so `Install-PackageViaWinget` can
+   call `& $wingetPath install …` instead of relying on PATH.
+
+If no runnable winget is found, the script now also surfaces an
+actionable hint pointing the user at the Microsoft Store **App
+Installer** package.
+
+### Tests
+- **404 / 404 pytest pass** (was 402; +2 new install-script tests
+  asserting the helper exists, probes `$env:LOCALAPPDATA` first, and
+  that `Install-PackageViaWinget` no longer contains the buggy
+  `& winget install` form).
+- Parse-verified under both PowerShell 5.1 and PowerShell 7 — see the
+  encoding memory; this script must be parseable under both because
+  Explorer's "Run with PowerShell" defaults to 5.1.
+
+### Upgrade
+Same flow as any update:
+1. Download `RIN-v0.9.1-windows-installer.zip` from the
+   [Releases page](https://github.com/dengyanbo/RecordItNow/releases).
+2. Quit RIN from the tray.
+3. Extract and double-click `Install.bat`.
+
+If the v0.9.0 install never completed on your machine because of this
+bug, just download v0.9.1 and run `Install.bat` — the hardening from
+v0.9.0 will detect any half-installed state and clean it up.
+
 ## v0.9.0 — In-app update story (2026-06-08)
 
 Five hours after v0.8.1, shipping the missing update story end-to-end:

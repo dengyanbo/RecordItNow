@@ -227,17 +227,60 @@ function Assert-Windows10Plus {
     }
 }
 
+function Resolve-WingetPath {
+    <#
+    .SYNOPSIS
+        Return the absolute path of a *runnable* winget.exe for the CURRENT
+        user, or $null if winget is unavailable.
+
+    .DESCRIPTION
+        Default ``Get-Command winget`` resolution can return another user's
+        App Execution Alias on multi-user machines, e.g.
+        ``C:\Users\<other>\AppData\Local\Microsoft\WindowsApps\winget.exe``,
+        which the current process cannot launch. The resulting error is
+        cryptic: "The system cannot find the path specified".
+
+        We probe the current user's WindowsApps folder first (the only
+        path guaranteed to belong to the current process owner), then fall
+        back to PATH resolution, and finally verify the candidate actually
+        launches by invoking ``--version``.
+    #>
+
+    # 1. Current-user App Execution Alias (the per-user winget shim).
+    $userWinget = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps\winget.exe'
+    if (Test-Path -LiteralPath $userWinget) {
+        try {
+            & $userWinget --version 2>$null | Out-Null
+            if ($LASTEXITCODE -eq 0) { return $userWinget }
+        } catch { }
+    }
+
+    # 2. Fall back to PATH but VERIFY the resolved file is launchable —
+    #    a stub belonging to a different user fails this probe.
+    $cmd = Get-Command winget -ErrorAction SilentlyContinue
+    if ($cmd -and $cmd.Source -and (Test-Path -LiteralPath $cmd.Source)) {
+        try {
+            & $cmd.Source --version 2>$null | Out-Null
+            if ($LASTEXITCODE -eq 0) { return $cmd.Source }
+        } catch { }
+    }
+
+    return $null
+}
+
 function Install-PackageViaWinget {
     param(
         [Parameter(Mandatory)][string]$Id,
         [Parameter(Mandatory)][string]$Friendly
     )
-    if (-not (Test-Command 'winget')) {
-        Write-Warn "winget not available; please install '$Friendly' manually."
+    $wingetPath = Resolve-WingetPath
+    if (-not $wingetPath) {
+        Write-Warn "winget not available for the current user; please install '$Friendly' manually."
+        Write-Host "    Tip: open Microsoft Store and install 'App Installer' to get winget, then re-run Install.bat."
         return $false
     }
-    Write-Host "    Installing $Friendly via winget..."
-    & winget install --exact --id $Id `
+    Write-Host "    Installing $Friendly via winget ($wingetPath)..."
+    & $wingetPath install --exact --id $Id `
         --accept-package-agreements --accept-source-agreements --silent | Out-Null
     if ($LASTEXITCODE -ne 0) {
         Write-Warn "winget exited with code $LASTEXITCODE while installing $Friendly. Continuing."
