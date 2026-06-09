@@ -585,7 +585,7 @@ class TopicsAndPoIsTab(QWidget):
     def _build_my_pois_section(self) -> QWidget:
         card, body = _card("My PoIs")
 
-        self._my_pois_table = QTableWidget(0, 8)
+        self._my_pois_table = QTableWidget(0, 9)
         self._my_pois_table.setHorizontalHeaderLabels(
             [
                 "Name",
@@ -595,6 +595,7 @@ class TopicsAndPoIsTab(QWidget):
                 "LLM judge",
                 "Archive after",
                 "Edit",
+                "Diagnose",
                 "Delete",
             ]
         )
@@ -604,7 +605,7 @@ class TopicsAndPoIsTab(QWidget):
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        for column in (4, 5, 6, 7):
+        for column in (4, 5, 6, 7, 8):
             header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
         body.addWidget(self._my_pois_table)
         return card
@@ -736,11 +737,17 @@ class TopicsAndPoIsTab(QWidget):
             )
             self._my_pois_table.setCellWidget(row, 6, edit_button)
 
+            diagnose_button = QPushButton("Diagnose…")
+            diagnose_button.clicked.connect(
+                lambda _checked=False, index=row: self._on_diagnose_topic(index)
+            )
+            self._my_pois_table.setCellWidget(row, 7, diagnose_button)
+
             delete_button = QPushButton("Delete")
             delete_button.clicked.connect(
                 lambda _checked=False, index=row: self._on_delete_topic(index)
             )
-            self._my_pois_table.setCellWidget(row, 7, delete_button)
+            self._my_pois_table.setCellWidget(row, 8, delete_button)
 
         self._my_pois_table.resizeRowsToContents()
 
@@ -916,6 +923,29 @@ class TopicsAndPoIsTab(QWidget):
         del self._in_memory_topics[index]
         self._reload_my_pois_table()
         self.pois_changed.emit()
+
+    def _on_diagnose_topic(self, index: int) -> None:
+        if index < 0 or index >= len(self._in_memory_topics):
+            return
+        from ..llm.base import ProviderUnavailable
+        from ..llm.factory import make_provider
+        from .poi_diagnostic_dialog import PoIDiagnosticDialog
+
+        provider = None
+        if self._in_memory_topics[index].llm_judge:
+            try:
+                provider = make_provider(self._config.llm)
+            except ProviderUnavailable:
+                provider = None
+            except Exception as exc:  # noqa: BLE001 - defensive
+                log.warning(f"diagnose: provider construction failed: {exc}")
+                provider = None
+        dialog = PoIDiagnosticDialog(
+            self._in_memory_topics[index],
+            provider=provider,
+            parent=self,
+        )
+        dialog.exec()
 
     def _on_accept_candidate(self, candidate_id: int) -> None:
         with session() as s:

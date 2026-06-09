@@ -2,6 +2,71 @@
 
 All notable changes to RIN — Record It Now.
 
+## v0.16.0 — Conversational LLM intake + "Why didn't this match?" diagnostic (Phase 2-C) (2026-06-09)
+
+Third and final "POI authoring assist" release in Part 2. Closes the
+iteration loop on PoI definitions: users can describe a topic in plain
+language (LLM converts to a `TopicSpec`), and any PoI that *should*
+have matched a given capture but didn't can now be diagnosed step by
+step. Both are opt-in and degrade gracefully when no LLM provider is
+configured.
+
+### What changed
+- **Conversational intake** on the wizard's Manual page. A new
+  "💬 Describe with chat…" button (hidden when no LLM provider is set
+  up) opens a bounded 4-question chat — *what to track? what words
+  appear? how do you know it's done? anything that looks similar but
+  isn't?* — and converts the answers into a `TopicSpec` via a single
+  LLM call. Skip / Finish / "edit manually" are always available so
+  the user can exit at any point with whatever's been collected.
+- **Heuristic fallback** for the chat synth when the LLM is
+  unreachable, returns malformed JSON, or simply isn't configured —
+  always returns a usable `TopicSpec` with at least 1 keyword (defaults
+  to the name).
+- **"Why didn't this match?" diagnostic** on Settings → Topics & PoIs.
+  Each row in the *My PoIs* table gains a new "Diagnose" button (the
+  table now has 9 columns instead of 8) that opens a dialog with a
+  "Pick capture…" picker. After a capture is chosen, the diagnostic
+  runs every step the engine would have run — regex, keyword, alias,
+  optional `llm_judge` — and shows pass / fail per step with the
+  matched substring on pass or a fuzzy closest-match hint on fail
+  (powered by `difflib.get_close_matches`).
+- **New modules**: `rin.poi.conversational` (chat state machine + LLM
+  synth helper) and `rin.poi.diagnostic` (step-by-step matcher with
+  closest-match hints). Both are pure Python; the LLM is consulted
+  once per chat for synth, and only when `topic.llm_judge=true` for the
+  diagnostic.
+- **New dialogs**: `PoIChatDialog` (4-turn chat with scrollable
+  history) and `PoIDiagnosticDialog` (step-by-step verdict rows with
+  selectable snippets).
+
+### Limits & safety
+- Chat is bounded at 4 questions; "Skip" advances without recording
+  the answer; "Finish" synthesises whatever has been collected so far.
+- Diagnostic uses the cheap layered matcher (regex → keyword → alias)
+  first; the LLM judge step only runs when `topic.llm_judge=true` AND
+  a provider is configured. Cost is bounded to 1 LLM call per
+  diagnostic run.
+- Closest-match hints in the diagnostic use a 0.6 similarity cutoff
+  and 60-character snippet windows to keep the UI readable and avoid
+  leaking large OCR fragments.
+
+### Schema / migrations
+- No schema changes. No migrations. No backfill.
+
+### Tests
+- 31 new tests across `tests/test_poi_conversational.py`,
+  `tests/test_poi_diagnostic.py`,
+  `tests/test_ui_poi_chat_dialog.py`,
+  `tests/test_ui_poi_diagnostic_dialog.py`. Suite now at **542 passed**
+  (was 511 in v0.15.0).
+
+### Upgrade
+- No action required — the chat button is hidden when no LLM provider
+  is configured, and existing workflows are untouched. Diagnose any
+  PoI that's been quietly missing matches by clicking the new
+  "Diagnose" column on Settings → Topics & PoIs.
+
 ## v0.15.0 — "Create PoI from capture" + persona starter packs (Phase 2-B) (2026-06-09)
 
 Second "POI authoring assist" release. Lowers the friction of bootstrapping

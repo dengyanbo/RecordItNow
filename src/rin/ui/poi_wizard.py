@@ -7,6 +7,7 @@ from PySide6.QtCore import QObject, QRunnable, QSize, Qt, QThreadPool, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -38,6 +39,15 @@ from .theme import resolve, with_accent
 log = get_logger(__name__)
 
 _MAX_WIZARD_TOPICS = 10
+
+
+def _provider_configured(cfg: RinConfig) -> bool:
+    """Return True when the user has a non-'none' LLM provider set up."""
+
+    try:
+        return bool(cfg.llm and getattr(cfg.llm, "name", "none") != "none")
+    except Exception:  # noqa: BLE001 - defensive; never block the wizard
+        return False
 
 
 class _DiscoverySignals(QObject):
@@ -106,13 +116,14 @@ class _ManualInputRow(QWidget):
 
 
 class _ManualPage(_HeaderPage):
-    def __init__(self, accent: str) -> None:
+    def __init__(self, cfg: RinConfig, accent: str) -> None:
         super().__init__(
             icon_name="info",
             accent=accent,
             title="Tell me what to track",
             body="Add up to three Points of Interest now, or leave this blank and let discovery suggest some next.",
         )
+        self._cfg = cfg
         self._added_topics: list[TopicSpec] = []
         self._applied_template_keys: set[str] = set()
 
@@ -137,6 +148,13 @@ class _ManualPage(_HeaderPage):
             self._on_persona_changed
         )
         persona_row.addWidget(self._persona_combo, 1)
+
+        self._chat_button = QPushButton("💬 Describe with chat…")
+        self._chat_button.setProperty("flat", True)
+        self._chat_button.setFlat(True)
+        self._chat_button.clicked.connect(self._on_chat_clicked)
+        self._chat_button.setVisible(_provider_configured(cfg))
+        persona_row.addWidget(self._chat_button, 0, Qt.AlignmentFlag.AlignVCenter)
         card_layout.addLayout(persona_row)
 
         added_label = QLabel("Already added")
@@ -191,6 +209,43 @@ class _ManualPage(_HeaderPage):
         self._status.setText(
             f"Loaded {len(template.topics)} starter PoI{plural} from “{template.display_name}”."
         )
+        self._status.show()
+        self._render_added_topics()
+
+    def _on_chat_clicked(self) -> None:
+        from ..llm.base import ProviderUnavailable
+        from ..llm.factory import make_provider
+        from .poi_chat_dialog import PoIChatDialog
+
+        provider = None
+        try:
+            provider = make_provider(self._cfg.llm)
+        except ProviderUnavailable:
+            provider = None
+        except Exception as exc:  # noqa: BLE001 - defensive
+            log.warning(f"chat intake: provider construction failed: {exc}")
+            provider = None
+
+        dialog = PoIChatDialog(provider=provider, parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        spec = dialog.topic()
+        if spec is None:
+            return
+        if len(self._added_topics) >= _MAX_WIZARD_TOPICS:
+            self._status.setText(
+                f"You can add up to {_MAX_WIZARD_TOPICS} PoIs in this wizard."
+            )
+            self._status.show()
+            return
+        if any(topic.name.casefold() == spec.name.casefold() for topic in self._added_topics):
+            self._status.setText(
+                f"A PoI named “{spec.name}” is already in the list."
+            )
+            self._status.show()
+            return
+        self._added_topics.append(spec)
+        self._status.setText(f"Added “{spec.name}” from chat intake.")
         self._status.show()
         self._render_added_topics()
 
@@ -480,7 +535,7 @@ class PoIWizard(QWizard):
         self._accent = theme.accent
 
         self._welcome_page = _WelcomePage(self._accent)
-        self._manual_page = _ManualPage(self._accent)
+        self._manual_page = _ManualPage(self._config, self._accent)
         self._discovery_page = _DiscoveryPage(cfg, self._accent)
         self._confirm_page = _ConfirmPage(self._accent)
 
