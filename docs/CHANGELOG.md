@@ -2,6 +2,102 @@
 
 All notable changes to RIN — Record It Now.
 
+## v1.0.0 — Production-stable milestone (2026-06-09)
+
+**RIN is out of alpha.** The 0.x line evolved across 18 minor + 30
+patch releases from "tap-to-screenshot toy" into a full screen-activity
+intelligence layer. v1.0.0 is the line drawn under that work: the
+feature surface is set, the test suite is solid, the data formats are
+stable, and the install / update / single-instance / privacy flows are
+production-grade. From here, breaking changes will follow semver.
+
+### What's in 1.0
+
+- **Single-button capture** — tap any keyboard / mouse / HID / Bluetooth
+  button for a full-resolution multi-monitor PNG + thumbnail; hold > 500 ms
+  for an MP4 + audio recording until release. Trigger learned via
+  "press the next button" flow.
+- **Hourly background analysis** — OCR (RapidOCR) + Whisper (faster-whisper)
+  + a vision LLM (Copilot CLI by default, OpenAI / Azure OpenAI optional)
+  summarize every recent capture, gated by working-hours OR idle-window
+  policy so RIN never runs during a live call.
+- **Skills plugin system** — pluggable categorization. Bundled `topic`
+  + `support_ticket` skills out of the box (16-digit case IDs, 19-digit
+  collab task IDs, configurable PoIs). Drop your own skills into
+  `%LOCALAPPDATA%\RIN\skills\`. CLI scaffold + validate, plus a one-click
+  "Convert PoI to Skill" upgrade path.
+- **PoI discovery layer** — Suggested PoIs auto-surfaced from your real
+  captures, persona starter packs, live regex preview with evidence
+  quotes, conversational LLM intake, Diagnose tooling, decay/noise
+  filter — see the README "Finding & creating PoIs" section.
+- **RAG search & ask** — semantic search over captures with bucket-aware
+  filters and per-PoI narrative answers cited as `cap-N`.
+- **Reports** — daily / weekly Markdown with FTS5 search across history,
+  PDF / HTML export, optional Obsidian-vault sync with YAML front-matter,
+  optional Outlook + Google Calendar integration adding a `## Calendar`
+  section.
+- **100% local storage** — SQLite (WAL + foreign keys), ChromaDB for
+  vectors, FTS5 for report search, dated file tree, configurable
+  retention, optional AES-256 at-rest encryption via Windows DPAPI.
+  Cloud LLM is opt-in.
+- **Privacy controls** — app blacklist (skip-capture by foreground
+  window), pause toggle + timed pauses, Ctrl+Alt+Shift+P panic key,
+  one-click redacted diagnostic zip (config + logs + env, no captures /
+  no secrets).
+- **Production install / update path** — one-click `Install.bat`
+  installer (single zip download, ~430 MB, no Python required),
+  multi-user winget resolution, in-app version check, single-instance
+  enforcement per user (no duplicate hotkey listeners or DB writers),
+  upgrade preserves all data under `%LOCALAPPDATA%\RIN\`.
+- **Theming** — Fluent-2-calibrated UI; light / dark / auto-follow-Windows;
+  four accent colors; two density modes; WCAG-AA contrast verified by tests.
+
+### Why 1.0 now
+
+The 0.x line cleared every gate that "production-stable" implies for
+this kind of app:
+
+- **Stable storage formats**: 18 SQLite tables + Chroma collection schema
+  reached steady state during the Phase 1 PoI work and have been
+  unchanged since v0.13.0. No further migrations on the horizon.
+- **Stable config schema**: `config.toml` shape and `[skills.*]` section
+  layout fixed since v0.16.0; the v0.18.0 `Convert PoI to Skill` upgrade
+  path exists precisely because the declarative form is now considered
+  "done".
+- **Hardened install**: the multi-user winget fix (v0.9.1) + single-instance
+  gate (v0.8.1) + one-click installer (v0.8.0) + the v0.18.3 cp1252
+  console fix together eliminate the last "won't run on my machine"
+  classes of bug we saw in alpha.
+- **Test suite**: 553 passing, ruff clean, CI green on Python 3.11 + 3.12.
+  Coverage spans every module from capture FSM to LLM provider abstraction
+  to RAG retrieval to per-PoI report rollup.
+- **Documentation**: bilingual README + agent-facing AGENTS.md + 5
+  topical docs in `docs/` + 30+ CHANGELOG entries with upgrade notes
+  per release. New "Finding & creating PoIs" section walks through
+  all four discovery layers.
+- **Real-world e2e validation**: the v0.18.2 sweep ran a 17-test e2e
+  harness across all 9 POI phases plus CLI + cp1252 regression in an
+  isolated `RIN_DATA_DIR`; the v0.18.3 review caught and fixed every
+  finding from a full repo audit (atomic Convert-PoI config persist,
+  tolerant regex generation, doc-correctness fixes).
+
+### Classifier
+- `Development Status :: 3 - Alpha` → `Development Status :: 5 - Production/Stable`
+
+### Schema / migrations
+- None. v1.0.0 reads and writes exactly the same schema as v0.18.3.
+
+### Tests
+- 553 passing. No new tests in this release.
+
+### Upgrade
+- **From any 0.x release**: download the v1.0.0 installer zip from
+  GitHub Releases, quit RIN from the tray, extract, double-click
+  `Install.bat`. Data under `%LOCALAPPDATA%\RIN\` is preserved.
+- The in-app update checker (added v0.9.0) will offer the v1.0.0
+  upgrade automatically on next launch if you've enabled
+  auto-check-updates.
+
 ## v0.18.3 — Convert-PoI hardening + doc fixes (2026-06-09)
 
 Patch release. Fixes four issues surfaced by a full-codebase review of

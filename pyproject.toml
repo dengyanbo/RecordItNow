@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "rin"
-version = "0.18.3"
+version = "1.0.0"
 description = "Record It Now — capture, analyze, and search your screen activity"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -12,7 +12,7 @@ license = { text = "MIT" }
 authors = [{ name = "RIN Contributors" }]
 keywords = ["screen-capture", "productivity", "rag", "agent"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Environment :: Win32 (MS Windows)",
     "Intended Audience :: End Users/Desktop",
     "License :: OSI Approved :: MIT License",
