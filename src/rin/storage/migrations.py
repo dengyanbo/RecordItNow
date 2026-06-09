@@ -105,6 +105,20 @@ def _add_report_poi_narratives_json(engine: Engine) -> None:
             )
 
 
+def _add_poi_candidate_evidence_quote(engine: Engine) -> None:
+    """Phase 2-A (v0.14.0): snippet of triggering text on poi_candidates."""
+
+    with engine.begin() as conn:
+        info = conn.exec_driver_sql("PRAGMA table_info(poi_candidates)").fetchall()
+        if not info:
+            return
+        columns = {row[1] for row in info}
+        if "evidence_quote" not in columns:
+            conn.execute(
+                text("ALTER TABLE poi_candidates ADD COLUMN evidence_quote TEXT")
+            )
+
+
 # (target_version, sql_or_fn). ``fn`` receives the Engine and runs inside its own transaction.
 MIGRATIONS: list[tuple[int, str | Callable[[Engine], None]]] = [
     # v0.5.0: skill-driven bucket categorization (see rin.skills).
@@ -163,6 +177,8 @@ MIGRATIONS: list[tuple[int, str | Callable[[Engine], None]]] = [
     (5, _add_analysis_structured_json),
     # v0.12.0 (Phase 1-C): cached per-POI narrative paragraphs on reports.
     (6, _add_report_poi_narratives_json),
+    # v0.14.0 (Phase 2-A): evidence quote snippet on poi_candidates.
+    (7, _add_poi_candidate_evidence_quote),
 ]
 
 CURRENT_VERSION = max((m[0] for m in MIGRATIONS), default=0)

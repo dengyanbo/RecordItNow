@@ -37,6 +37,43 @@ _PHRASE_NAME_RE = re.compile(r"^[A-Z][A-Za-z0-9]+( [A-Z][A-Za-z0-9]+)+$")
 _NAMEISH_WORD_RE = re.compile(r"^(?:[A-Z][A-Za-z0-9]*|[A-Z0-9]{2,})$")
 _KIND_ORDER = {"regex": 0, "domain": 1, "phrase": 2, "llm": 3}
 
+#: Phase 2-A (v0.14.0): ±60-char window around a match used as
+#: ``PoICandidate.evidence_quote``.
+EVIDENCE_QUOTE_CONTEXT = 60
+EVIDENCE_QUOTE_MAX_LEN = 200
+
+
+def extract_evidence_quote(
+    text: str,
+    span_start: int,
+    span_end: int,
+    *,
+    context: int = EVIDENCE_QUOTE_CONTEXT,
+    max_len: int = EVIDENCE_QUOTE_MAX_LEN,
+) -> str:
+    """Return a short snippet of ``text`` around the match span.
+
+    - Pads with ``…`` when truncating the start/end.
+    - Collapses internal whitespace + newlines to single spaces.
+    - Hard-caps the rendered length at ``max_len`` so a giant match
+      can't blow up the persisted value.
+    """
+
+    if not text or span_end <= span_start:
+        return ""
+    span_start = max(0, span_start)
+    span_end = min(len(text), span_end)
+    start = max(0, span_start - context)
+    end = min(len(text), span_end + context)
+    snippet = text[start:end]
+    snippet = " ".join(snippet.split())
+    prefix = "…" if start > 0 else ""
+    suffix = "…" if end < len(text) else ""
+    snippet = f"{prefix}{snippet}{suffix}"
+    if len(snippet) > max_len:
+        snippet = snippet[: max_len - 1].rstrip() + "…"
+    return snippet
+
 
 @dataclass(slots=True)
 class PoICandidateDraft:
@@ -47,6 +84,11 @@ class PoICandidateDraft:
     description: str | None
     evidence_capture_ids: list[int]
     score: float
+    # Phase 2-A (v0.14.0): short snippet (±60 chars) around the first
+    # occurrence of the match in a real capture. ``None`` when discovery
+    # can't pin a specific span (e.g. older code paths or LLM-mined
+    # candidates whose name doesn't literally appear in the summary).
+    evidence_quote: str | None = None
 
 
 @dataclass(slots=True)
@@ -156,6 +198,7 @@ def persist_candidates(
                 description=_normalize_text(draft.description) or None,
                 evidence_capture_ids=_unique_capture_ids(draft.evidence_capture_ids),
                 score=float(draft.score),
+                evidence_quote=draft.evidence_quote,
             )
         )
     if not normalized:
@@ -182,6 +225,7 @@ def persist_candidates(
                 kind=draft.kind,
                 description=draft.description,
                 evidence_capture_ids=json.dumps(draft.evidence_capture_ids),
+                evidence_quote=draft.evidence_quote,
                 score=draft.score,
                 status="pending",
                 decided_by="auto",
@@ -251,6 +295,7 @@ def _mine_regex(
 ) -> list[PoICandidateDraft]:
     compiled = [re.compile(pattern, re.IGNORECASE) for pattern in _REGEX_PATTERNS]
     hits: dict[str, set[int]] = defaultdict(set)
+    quotes: dict[str, str] = {}
 
     for record in records:
         text = record.combined_text
@@ -260,8 +305,13 @@ def _mine_regex(
         for pattern in compiled:
             for match in pattern.finditer(text):
                 token = _normalize_text(match.group(0)).upper()
-                if token:
-                    matches_in_capture.add(token)
+                if not token:
+                    continue
+                matches_in_capture.add(token)
+                if token not in quotes:
+                    quote = extract_evidence_quote(text, match.start(), match.end())
+                    if quote:
+                        quotes[token] = quote
         for token in matches_in_capture:
             hits[token].add(record.capture_id)
 
@@ -278,6 +328,7 @@ def _mine_regex(
                 description=f"Recurring ID pattern '{token}' seen in {count} captures.",
                 evidence_capture_ids=evidence_ids,
                 score=float(count),
+                evidence_quote=quotes.get(token),
             )
         )
     drafts.sort(key=_candidate_sort_key)
@@ -288,12 +339,14 @@ def _mine_domains(
     records: list[_CaptureRecord], *, min_evidence: int
 ) -> list[PoICandidateDraft]:
     hits: dict[str, set[int]] = defaultdict(set)
+    quotes: dict[str, str] = {}
 
     for record in records:
         if not record.ocr_text:
             continue
         domains_in_capture: set[str] = set()
-        for host in _DOMAIN_RE.findall(record.ocr_text):
+        for match in _DOMAIN_RE.finditer(record.ocr_text):
+            host = match.group(1)
             domain = host.strip().lower().rstrip(".,;:!?)\"']}")
             domain = domain.removeprefix("www.")
             domain = domain.split(":", 1)[0]
@@ -304,6 +357,12 @@ def _mine_domains(
             if domain.endswith(".local"):
                 continue
             domains_in_capture.add(domain)
+            if domain not in quotes:
+                quote = extract_evidence_quote(
+                    record.ocr_text, match.start(), match.end()
+                )
+                if quote:
+                    quotes[domain] = quote
         for domain in domains_in_capture:
             hits[domain].add(record.capture_id)
 
@@ -320,6 +379,7 @@ def _mine_domains(
                 description=f"Domain seen in {count} captures.",
                 evidence_capture_ids=evidence_ids,
                 score=float(math.log2(count)),
+                evidence_quote=quotes.get(domain),
             )
         )
     drafts.sort(key=_candidate_sort_key)
@@ -330,8 +390,11 @@ def _mine_phrases(
     records: list[_CaptureRecord], *, min_evidence: int
 ) -> list[PoICandidateDraft]:
     hits: dict[str, set[int]] = defaultdict(set)
+    quotes: dict[str, str] = {}
 
     for record in records:
+        if not record.summary:
+            continue
         tokens = [token for token in _PHRASE_SPLIT_RE.split(record.summary) if token]
         if len(tokens) < 2:
             continue
@@ -347,6 +410,14 @@ def _mine_phrases(
                 phrases_in_capture.add(phrase)
         for phrase in phrases_in_capture:
             hits[phrase].add(record.capture_id)
+            if phrase not in quotes:
+                idx = record.summary.find(phrase)
+                if idx >= 0:
+                    quote = extract_evidence_quote(
+                        record.summary, idx, idx + len(phrase)
+                    )
+                    if quote:
+                        quotes[phrase] = quote
 
     drafts: list[PoICandidateDraft] = []
     for phrase, capture_ids in hits.items():
@@ -361,6 +432,7 @@ def _mine_phrases(
                 description=f"Recurring phrase '{phrase}' in {count} captures.",
                 evidence_capture_ids=evidence_ids,
                 score=float(count),
+                evidence_quote=quotes.get(phrase),
             )
         )
     drafts.sort(key=_candidate_sort_key)
@@ -418,11 +490,23 @@ def _mine_llm(
         key = name.casefold()
         if key in seen_names:
             continue
-        evidence_ids = [
-            record.capture_id
-            for record in records
-            if record.summary and key in record.summary.casefold()
-        ]
+        evidence_ids = []
+        evidence_quote: str | None = None
+        for record in records:
+            haystack = record.combined_text
+            if not haystack:
+                continue
+            lower = haystack.casefold()
+            idx = lower.find(key)
+            if idx < 0:
+                continue
+            evidence_ids.append(record.capture_id)
+            if evidence_quote is None:
+                quote = extract_evidence_quote(
+                    haystack, idx, idx + len(key)
+                )
+                if quote:
+                    evidence_quote = quote
         evidence_ids = _unique_capture_ids(evidence_ids)
         if len(evidence_ids) < min_evidence:
             continue
@@ -436,6 +520,7 @@ def _mine_llm(
                 description=_normalize_text(description) or None,
                 evidence_capture_ids=evidence_ids,
                 score=0.5,
+                evidence_quote=evidence_quote,
             )
         )
         seen_names.add(key)
@@ -515,6 +600,7 @@ def _merge_candidates(candidates: list[PoICandidateDraft]) -> list[PoICandidateD
             description=_normalize_text(draft.description) or None,
             evidence_capture_ids=evidence_ids,
             score=float(draft.score),
+            evidence_quote=draft.evidence_quote,
         )
         existing = merged.get(key)
         if existing is None:
@@ -524,6 +610,8 @@ def _merge_candidates(candidates: list[PoICandidateDraft]) -> list[PoICandidateD
         combined_evidence = _unique_capture_ids(
             existing.evidence_capture_ids + candidate.evidence_capture_ids
         )
+        # Prefer the candidate.evidence_quote of the stronger draft, but
+        # fall back to whichever quote is non-empty so we never lose it.
         if candidate.score > existing.score:
             merged[key] = PoICandidateDraft(
                 suggested_name=candidate.suggested_name,
@@ -531,6 +619,7 @@ def _merge_candidates(candidates: list[PoICandidateDraft]) -> list[PoICandidateD
                 description=candidate.description or existing.description,
                 evidence_capture_ids=combined_evidence,
                 score=candidate.score,
+                evidence_quote=candidate.evidence_quote or existing.evidence_quote,
             )
             continue
 
@@ -540,6 +629,7 @@ def _merge_candidates(candidates: list[PoICandidateDraft]) -> list[PoICandidateD
             description=existing.description or candidate.description,
             evidence_capture_ids=combined_evidence,
             score=existing.score,
+            evidence_quote=existing.evidence_quote or candidate.evidence_quote,
         )
     return list(merged.values())
 

@@ -32,6 +32,7 @@ def _insert_candidate(
     score: float = 1.0,
     description: str | None = None,
     evidence_ids: list[int] | None = None,
+    evidence_quote: str | None = None,
 ) -> int:
     with session() as s:
         row = PoICandidate(
@@ -39,6 +40,7 @@ def _insert_candidate(
             kind=kind,
             description=description,
             evidence_capture_ids=json.dumps(evidence_ids or [1, 2]),
+            evidence_quote=evidence_quote,
             score=score,
             status=status,
             decided_by="auto",
@@ -174,3 +176,55 @@ def test_invalid_regex_in_form_shows_error_does_not_add(qapp) -> None:
     assert tab._my_pois_table.rowCount() == 0
     assert tab._manual_error_label.isVisible()
     assert "Invalid regex" in tab._manual_error_label.text()
+
+
+def test_suggested_table_renders_evidence_quote_column(qapp, rin_db) -> None:
+    """Phase 2-A: the persisted quote shows up in the new Quote column."""
+
+    _insert_candidate(
+        name="Project Atlas",
+        evidence_quote="…Project Atlas review meeting…",
+    )
+    tab = TopicsAndPoIsTab(RinConfig())
+
+    headers = [
+        tab._suggested_table.horizontalHeaderItem(i).text()
+        for i in range(tab._suggested_table.columnCount())
+    ]
+    assert "Quote" in headers
+    quote_col = headers.index("Quote")
+    assert (
+        tab._suggested_table.item(0, quote_col).text()
+        == "…Project Atlas review meeting…"
+    )
+
+
+def test_live_preview_panel_hidden_until_input(qapp) -> None:
+    """Phase 2-A: empty form -> preview panel stays hidden."""
+
+    tab = TopicsAndPoIsTab(RinConfig())
+    panel = tab._manual_fields.preview_panel
+    qapp.processEvents()
+    assert not panel.isVisible()
+
+
+def test_live_preview_panel_shown_after_keyword_typed(qapp, rin_db) -> None:
+    """Phase 2-A: typing keywords triggers the debounce + show path."""
+
+    tab = TopicsAndPoIsTab(RinConfig())
+    tab.show()
+    qapp.processEvents()
+    panel = tab._manual_fields.preview_panel
+
+    tab._manual_keywords.setText("atlas")
+    # Bypass the 300 ms debounce by calling _dispatch directly so the
+    # test stays deterministic.
+    panel._debounce.stop()
+    panel._dispatch()
+    qapp.processEvents()
+
+    # ``isVisible()`` requires all ancestors to be visible; the tab is
+    # shown above, so the panel inherits visibility once ``show()`` is
+    # called on it from ``_dispatch``.
+    assert not panel.isHidden()
+

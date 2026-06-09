@@ -261,3 +261,37 @@ def test_accept_marks_db_candidates_when_present(
         rows = s.scalars(select(PoICandidate).order_by(PoICandidate.id.asc())).all()
         assert [row.status for row in rows] == ["accepted", "accepted"]
         assert all(row.decided_by == "user" for row in rows)
+
+
+def test_discovery_page_renders_evidence_quote(
+    qapp,
+    rin_db,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Phase 2-A: each suggestion shows the matched snippet underneath."""
+
+    from PySide6.QtWidgets import QLabel
+
+    drafts = [
+        PoICandidateDraft(
+            suggested_name="Atlas",
+            kind="phrase",
+            description="Project Atlas",
+            evidence_capture_ids=[1, 2, 3],
+            score=2.0,
+            evidence_quote="…Project Atlas review meeting agenda…",
+        ),
+    ]
+    wizard = _make_sync_wizard(qapp, monkeypatch, drafts)
+
+    wizard.next()
+    _drain(qapp)
+    wizard.next()
+    _drain(qapp)
+
+    labels = wizard._discovery_page._results_host.findChildren(QLabel)
+    label_texts = [label.text() for label in labels]
+    assert any(
+        "Project Atlas review meeting agenda" in text for text in label_texts
+    )
+

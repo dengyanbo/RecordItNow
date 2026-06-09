@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 
-from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal
+from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -31,6 +31,7 @@ from sqlalchemy import select
 
 from ..config import RinConfig, SkillsConfig
 from ..poi.discovery import discover, persist_candidates
+from ..poi.preview import PreviewResult, preview_matches
 from ..skills.builtin.topic.skill import TopicConfig, TopicSpec
 from ..storage import session
 from ..storage.models import PoICandidate
@@ -42,6 +43,9 @@ log = get_logger(__name__)
 
 _W_NUMBER = 132
 _W_TEXT = 360
+_PREVIEW_DEBOUNCE_MS = 300
+_PREVIEW_DAYS = 7
+_PREVIEW_MAX_EXAMPLES = 3
 
 
 @dataclass(slots=True)
@@ -73,6 +77,168 @@ class _DiscoveryTask(QRunnable):
             self._signals.done.emit(len(inserted_ids))
         except Exception as exc:
             self._signals.failed.emit(str(exc))
+
+
+class _PreviewSignals(QObject):
+    done = Signal(object)
+    failed = Signal(str)
+
+
+class _PreviewTask(QRunnable):
+    """Phase 2-A (v0.14.0): runs ``preview_matches`` off the Qt thread."""
+
+    def __init__(
+        self,
+        signals: _PreviewSignals,
+        *,
+        regex_patterns: list[str],
+        keywords: list[str],
+        token: int,
+    ) -> None:
+        super().__init__()
+        self._signals = signals
+        self._regex = regex_patterns
+        self._keywords = keywords
+        self._token = token
+
+    def run(self) -> None:
+        try:
+            result = preview_matches(
+                regex_patterns=self._regex,
+                keywords=self._keywords,
+                days=_PREVIEW_DAYS,
+                max_examples=_PREVIEW_MAX_EXAMPLES,
+            )
+            self._signals.done.emit((self._token, result))
+        except Exception as exc:  # pragma: no cover - defensive worker path
+            self._signals.failed.emit(f"{self._token}:{exc}")
+
+
+class _LivePreviewPanel(QWidget):
+    """Renders ``preview_matches`` output below the editor form.
+
+    Hidden by default. ``request_refresh`` schedules a debounced run; the
+    panel always reflects the most recently requested input (older
+    workers' results are discarded via ``_request_token``).
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._pool = QThreadPool.globalInstance()
+        self._signals = _PreviewSignals()
+        self._signals.done.connect(
+            self._on_done, Qt.ConnectionType.QueuedConnection
+        )
+        self._signals.failed.connect(
+            self._on_failed, Qt.ConnectionType.QueuedConnection
+        )
+
+        self._request_token = 0
+        self._debounce = QTimer(self)
+        self._debounce.setSingleShot(True)
+        self._debounce.setInterval(_PREVIEW_DEBOUNCE_MS)
+        self._debounce.timeout.connect(self._dispatch)
+
+        self._pending_regex: list[str] = []
+        self._pending_keywords: list[str] = []
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 4, 0, 0)
+        layout.setSpacing(4)
+
+        self._summary = QLabel("")
+        self._summary.setProperty("role", "field-label")
+        self._summary.setWordWrap(True)
+        layout.addWidget(self._summary)
+
+        self._examples_host = QWidget()
+        self._examples_layout = QVBoxLayout(self._examples_host)
+        self._examples_layout.setContentsMargins(0, 0, 0, 0)
+        self._examples_layout.setSpacing(2)
+        layout.addWidget(self._examples_host)
+
+        self.hide()
+
+    def request_refresh(
+        self, *, regex_patterns: list[str], keywords: list[str]
+    ) -> None:
+        self._pending_regex = list(regex_patterns)
+        self._pending_keywords = list(keywords)
+        if not regex_patterns and not keywords:
+            self._debounce.stop()
+            self._clear_examples()
+            self._request_token += 1  # invalidate any in-flight worker
+            self._summary.setText("")
+            self.hide()
+            return
+        self._debounce.start()
+
+    def _dispatch(self) -> None:
+        self._request_token += 1
+        self._summary.setText("Checking the last 7 days…")
+        self.show()
+        self._clear_examples()
+        self._pool.start(
+            _PreviewTask(
+                self._signals,
+                regex_patterns=self._pending_regex,
+                keywords=self._pending_keywords,
+                token=self._request_token,
+            )
+        )
+
+    def _on_done(self, payload: object) -> None:
+        if not isinstance(payload, tuple) or len(payload) != 2:
+            return
+        token, result = payload
+        if token != self._request_token:
+            return
+        if not isinstance(result, PreviewResult):
+            return
+        self._clear_examples()
+        if result.error:
+            self._summary.setText(result.error)
+            self.show()
+            return
+        if result.sampled_captures == 0:
+            self._summary.setText(
+                "No captures from the last 7 days yet — preview is empty."
+            )
+            self.show()
+            return
+        plural = "" if result.matched_count == 1 else "s"
+        self._summary.setText(
+            f"{result.matched_count} capture{plural} would match "
+            f"(scanned {result.sampled_captures})."
+        )
+        for example in result.examples:
+            label = QLabel(
+                f"cap-{example.capture_id}: “{example.snippet}”"
+            )
+            label.setProperty("role", "field-hint")
+            label.setWordWrap(True)
+            self._examples_layout.addWidget(label)
+        self.show()
+
+    def _on_failed(self, message: str) -> None:
+        token_str, _, detail = message.partition(":")
+        try:
+            token = int(token_str)
+        except ValueError:
+            return
+        if token != self._request_token:
+            return
+        self._clear_examples()
+        self._summary.setText("Preview failed.")
+        log.warning(f"PoI live preview failed: {detail}")
+        self.show()
+
+    def _clear_examples(self) -> None:
+        while self._examples_layout.count():
+            item = self._examples_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
 
 
 class _TopicEditorFields(QWidget):
@@ -107,6 +273,8 @@ class _TopicEditorFields(QWidget):
         self.error_label = _hint("")
         self.error_label.hide()
 
+        self.preview_panel = _LivePreviewPanel(self)
+
         form = _form_layout()
         form.addRow(_label("Name"), self.name_edit)
         form.addRow(_label("Description"), self.description_edit)
@@ -116,7 +284,27 @@ class _TopicEditorFields(QWidget):
         form.addRow(_label("Archive after N days"), self.archive_after_spin)
         form.addRow(_label("Closed phrases (one per line)"), self.closed_phrases_edit)
         form.addRow(self.error_label)
+        form.addRow(self.preview_panel)
         self.setLayout(form)
+
+        self.keywords_edit.textChanged.connect(self._on_pattern_changed)
+        self.regex_edit.textChanged.connect(self._on_pattern_changed)
+        self._on_pattern_changed()
+
+    def _on_pattern_changed(self) -> None:
+        regex = [
+            line.strip()
+            for line in self.regex_edit.toPlainText().splitlines()
+            if line.strip()
+        ]
+        keywords = [
+            part.strip()
+            for part in self.keywords_edit.text().split(",")
+            if part.strip()
+        ]
+        self.preview_panel.request_refresh(
+            regex_patterns=regex, keywords=keywords
+        )
 
     def load_topic(self, topic: TopicSpec) -> None:
         self.name_edit.setText(topic.name)
@@ -323,13 +511,14 @@ class TopicsAndPoIsTab(QWidget):
         actions.addStretch(1)
         body.addLayout(actions)
 
-        self._suggested_table = QTableWidget(0, 6)
+        self._suggested_table = QTableWidget(0, 7)
         self._suggested_table.setHorizontalHeaderLabels(
             [
                 "Suggested name",
                 "Kind",
                 "Score",
                 "Evidence",
+                "Quote",
                 "Accept",
                 "Reject",
             ]
@@ -339,9 +528,10 @@ class TopicsAndPoIsTab(QWidget):
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
         body.addWidget(self._suggested_table)
         return card
 
@@ -438,18 +628,23 @@ class TopicsAndPoIsTab(QWidget):
                 3,
                 _item(_evidence_text(candidate.evidence_capture_ids)),
             )
+            self._suggested_table.setItem(
+                row,
+                4,
+                _item(candidate.evidence_quote or ""),
+            )
 
             accept_button = QPushButton("Accept")
             accept_button.clicked.connect(
                 lambda _checked=False, candidate_id=candidate.id: self._on_accept_candidate(candidate_id)
             )
-            self._suggested_table.setCellWidget(row, 4, accept_button)
+            self._suggested_table.setCellWidget(row, 5, accept_button)
 
             reject_button = QPushButton("Reject")
             reject_button.clicked.connect(
                 lambda _checked=False, candidate_id=candidate.id: self._on_reject_candidate(candidate_id)
             )
-            self._suggested_table.setCellWidget(row, 5, reject_button)
+            self._suggested_table.setCellWidget(row, 6, reject_button)
 
         self._suggested_table.resizeRowsToContents()
 

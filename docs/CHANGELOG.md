@@ -2,6 +2,55 @@
 
 All notable changes to RIN — Record It Now.
 
+## v0.14.0 — Live regex preview + evidence quotes in wizard (Phase 2-A) (2026-06-09)
+
+First "POI authoring assist" release. Surfaces *why* a PoI was
+suggested (the snippet of OCR/transcript text that triggered it) and
+lets users sanity-check their regex/keywords against real captures
+before saving.
+
+### What changed
+- **Evidence quotes on `poi_candidates`.** New `evidence_quote: TEXT`
+  column (migration v7) stores a ±60-char snippet around the first
+  occurrence of the match in real capture text. All four discovery
+  strategies (regex / domain / phrase / LLM) populate it.
+- **Wizard renders the quote** under each discovered PoI checkbox
+  ("…Project Atlas review meeting…"). Existing PoIs without a quote
+  fall back silently to the old "(seen in N captures)" label.
+- **Settings → Topics & PoIs**: the Suggested table gains a "Quote"
+  column showing the persisted snippet.
+- **Live preview in the editor** — both the inline manual-add form and
+  the Edit dialog. As you type regex or keywords, after a 300 ms
+  debounce, a worker thread runs `preview_matches()` against the last
+  7 days of captures and shows:
+  - the matched-capture count + how many captures were scanned
+  - up to 3 random example snippets (`cap-N: "…match…"`)
+  - an inline error message for malformed regex.
+  Scan is capped at 200 captures so the UI stays responsive.
+- **New `rin.poi.preview` module**. Pure-Python, stdlib-only;
+  importable from headless tests.
+
+### Tests
+- `tests/test_poi_evidence_quote_and_preview.py` (18 tests) — quote
+  window math (ellipsis padding, whitespace collapsing, max-len cap,
+  empty-text edge case), regex/domain/phrase miners all attach a
+  quote, `_merge_candidates` keeps the non-empty quote when merging,
+  `persist_candidates` writes None → NULL and string → TEXT,
+  `preview_matches` returns count + examples, invalid regex returns
+  error, empty inputs return zero, sample_limit caps the scan.
+- `tests/test_ui_poi_tab.py` (+3 tests) — Suggested table renders the
+  Quote column, preview panel hidden until input, preview panel
+  shown after a keyword is typed.
+- `tests/test_ui_poi_wizard.py` (+1 test) — Discovery page renders
+  the evidence-quote label under each suggestion.
+- Total: 492 passed (was 470).
+
+### Compatibility
+- Migration v7 adds `evidence_quote` idempotently; old rows have
+  `NULL` and the UI falls back gracefully.
+- No new mandatory features: editor live-preview is purely additive
+  visual feedback; rejecting the snippet still works.
+
 ## v0.13.0 — Active-POI decay + noise filter (Phase 1-D) (2026-06-09)
 
 Final POI-aware summarization release. Bounds the per-capture prompt

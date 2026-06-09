@@ -230,6 +230,10 @@ class PoICandidate(Base):
     kind: Mapped[str] = mapped_column(String(16))  # "regex" | "domain" | "phrase" | "llm"
     description: Mapped[str | None] = mapped_column(Text, default=None)
     evidence_capture_ids: Mapped[str] = mapped_column(Text)  # JSON list of ints
+    # Phase 2-A (v0.14.0): a short snippet (±60 chars) of the text that
+    # triggered this suggestion, so users can spot-check false positives
+    # in the wizard / Settings table without opening the capture.
+    evidence_quote: Mapped[str | None] = mapped_column(Text, default=None)
     score: Mapped[float] = mapped_column(default=0.0)
     status: Mapped[str] = mapped_column(String(16), default="pending")  # pending|accepted|rejected|merged
     suggested_at: Mapped[datetime] = mapped_column(default=func.now(), index=True)
