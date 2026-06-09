@@ -2,6 +2,72 @@
 
 All notable changes to RIN — Record It Now.
 
+## v0.18.0 — Convert PoI to Skill (Phase 3-B) (2026-06-09)
+
+Final shippable Part 3 release (3-C is research-only). Adds a one-click
+bridge from declarative `topic` PoIs to hand-written `Skill` plugins.
+Together with the v0.17.0 scaffold + validate CLI, this completes the
+upgrade path for users whose PoIs grow beyond what the declarative
+form can express.
+
+### What changed
+- **"Convert…" button** on Settings → Topics & PoIs. Each row in the
+  My PoIs table now has a Convert column (between Diagnose and
+  Delete; the table grew from 9 → 10 columns). Clicking it confirms
+  with the user, generates a standalone `skill.py` under the user
+  skills folder, and removes the PoI from `[skills.topic]`. The user
+  is told to restart RIN + enable the new skill in Settings → Skills.
+- **`rin.skills.from_topic` module**. `render_skill_source(topic)`
+  emits the `skill.py` body for a `TopicSpec` (deterministic — same
+  input always yields byte-identical output). `convert_topic_to_skill`
+  writes that body to `<skills_dir>/<sanitised_name>/skill.py`,
+  refusing to overwrite an existing file unless `overwrite=True`.
+- **Generated skill is feature-complete**. Replicates the original
+  TopicSpec's regex (case-insensitive), keywords, aliases,
+  closed_phrases, and archive_after_days as constants baked into a
+  hand-written `Skill` subclass. `detect()` returns one BucketRef
+  keyed by the sanitised name; `should_close()` fires on either
+  closed-phrase match or age past `archive_after_days`.
+- **Every generated skill passes `rin skill validate`** out of the
+  box — covered by an integration test that runs the v0.17 validator
+  against output of v0.18 generator.
+
+### Limits & safety
+- The generated skill is a *snapshot* — RIN will not refresh it when
+  the original TopicSpec changes. Users are expected to edit the
+  Python from that point on. The original PoI is removed from
+  `[skills.topic]` after successful generation so there's no
+  duplicate matching.
+- Folder names are derived from the topic name via lowercase
+  `[a-z0-9_]` sanitisation, prefixed `t_` when the result starts
+  with a digit, and falling back to `topic` when the input has no
+  alphanumerics at all. This guarantees an importable module name.
+- Confirmation prompts always run first; cancel keeps the PoI
+  intact. If the target folder already has a `skill.py`, the user
+  is asked once more before overwriting.
+
+### Schema / migrations
+- No schema changes. No migrations. No backfill.
+
+### Tests
+- 17 new tests across `tests/test_skill_from_topic.py` (sanitiser,
+  source renderer, file writer, generated-skill behaviour,
+  validator integration) and `tests/test_ui_poi_convert.py` (button
+  presence, end-to-end flow with mocked QMessageBox, cancel path).
+- Suite now at **579 passed** (was 562 in v0.17.0).
+
+### Upgrade
+- No action required. Try the new flow: Settings → Topics & PoIs →
+  pick a PoI → Convert… → restart RIN → Settings → Skills → enable
+  the new skill.
+
+### Note on Phase 3-C
+- Phase 3-C (constrained DSL + subprocess sandbox + LLM-DSL author)
+  is deliberately deferred as a research spike. Ship-quality work
+  on it depends on whether real users actually outgrow `topic` +
+  Phase 3-B's "convert to Python" escape hatch. We'll revisit when
+  user demand justifies the ~300-line sandbox infra + DSL design.
+
 ## v0.17.0 — Skill scaffold + validate CLI (Phase 3-A) (2026-06-09)
 
 First "skill authoring" release in Part 3. Zero new runtime behaviour

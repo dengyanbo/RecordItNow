@@ -29,7 +29,7 @@ uv venv
 .\.venv\Scripts\Activate.ps1
 uv pip install -e ".[all,dev]"
 
-pytest -q          # should print "562 passed" (or higher)
+pytest -q          # should print "579 passed" (or higher)
 python -m rin --smoke
 ```
 
@@ -46,7 +46,7 @@ If `pytest` is red on `main`, that is a bug — please open an issue.
   (almost every commit in RIN's history does this):
 
   ```
-  Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
+  Co-authored-by: Copilot <223557919+Copilot@users.noreply.github.com>
   ```
 
 - Squash-merge is the default; PR title becomes the commit subject.
@@ -78,7 +78,7 @@ ruff format src tests scripts    # optional but recommended
 them in your PR; if a rule is genuinely wrong for a single file, add an
 inline `# noqa: <code>` comment with a one-line justification.
 
-> The current baseline is **562 passed**; PRs must not regress that count.
+> The current baseline is **579 passed**; PRs must not regress that count.
 
 ## 5. The five hard rules
 

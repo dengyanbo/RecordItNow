@@ -585,7 +585,7 @@ class TopicsAndPoIsTab(QWidget):
     def _build_my_pois_section(self) -> QWidget:
         card, body = _card("My PoIs")
 
-        self._my_pois_table = QTableWidget(0, 9)
+        self._my_pois_table = QTableWidget(0, 10)
         self._my_pois_table.setHorizontalHeaderLabels(
             [
                 "Name",
@@ -596,6 +596,7 @@ class TopicsAndPoIsTab(QWidget):
                 "Archive after",
                 "Edit",
                 "Diagnose",
+                "Convert",
                 "Delete",
             ]
         )
@@ -605,7 +606,7 @@ class TopicsAndPoIsTab(QWidget):
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        for column in (4, 5, 6, 7, 8):
+        for column in (4, 5, 6, 7, 8, 9):
             header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
         body.addWidget(self._my_pois_table)
         return card
@@ -743,11 +744,21 @@ class TopicsAndPoIsTab(QWidget):
             )
             self._my_pois_table.setCellWidget(row, 7, diagnose_button)
 
+            convert_button = QPushButton("Convert…")
+            convert_button.setToolTip(
+                "Generate a standalone Skill plugin from this PoI "
+                "(removes it from the topic skill)."
+            )
+            convert_button.clicked.connect(
+                lambda _checked=False, index=row: self._on_convert_topic(index)
+            )
+            self._my_pois_table.setCellWidget(row, 8, convert_button)
+
             delete_button = QPushButton("Delete")
             delete_button.clicked.connect(
                 lambda _checked=False, index=row: self._on_delete_topic(index)
             )
-            self._my_pois_table.setCellWidget(row, 8, delete_button)
+            self._my_pois_table.setCellWidget(row, 9, delete_button)
 
         self._my_pois_table.resizeRowsToContents()
 
@@ -946,6 +957,62 @@ class TopicsAndPoIsTab(QWidget):
             parent=self,
         )
         dialog.exec()
+
+    def _on_convert_topic(self, index: int) -> None:
+        if index < 0 or index >= len(self._in_memory_topics):
+            return
+        from ..skills.from_topic import convert_topic_to_skill
+
+        topic = self._in_memory_topics[index]
+        reply = QMessageBox.question(
+            self,
+            "Convert PoI to Skill",
+            (
+                f"Generate a standalone Skill plugin from {topic.name!r}?\n\n"
+                "RIN will:\n"
+                f"  • Write a new skill.py under your skills folder\n"
+                f"  • Remove this PoI from the topic skill\n\n"
+                "You'll need to restart RIN and enable the new skill in "
+                "Settings → Skills for it to start producing buckets."
+            ),
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if reply != QMessageBox.StandardButton.Ok:
+            return
+        try:
+            path = convert_topic_to_skill(topic)
+        except FileExistsError as exc:
+            overwrite = QMessageBox.question(
+                self,
+                "Skill already exists",
+                f"{exc}\n\nOverwrite the existing file?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if overwrite != QMessageBox.StandardButton.Yes:
+                return
+            path = convert_topic_to_skill(topic, overwrite=True)
+        except Exception as exc:  # noqa: BLE001 - surfaced to user
+            log.exception(f"convert_topic_to_skill failed: {exc}")
+            QMessageBox.critical(
+                self,
+                "Conversion failed",
+                f"Could not generate skill: {exc}",
+            )
+            return
+
+        del self._in_memory_topics[index]
+        self._reload_my_pois_table()
+        self.pois_changed.emit()
+        QMessageBox.information(
+            self,
+            "Skill generated",
+            (
+                f"Created {path}\n\n"
+                "Restart RIN, then enable the skill in Settings → Skills."
+            ),
+        )
 
     def _on_accept_candidate(self, candidate_id: int) -> None:
         with session() as s:
