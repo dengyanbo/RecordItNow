@@ -24,7 +24,7 @@ lives in [`docs/skills.md`](docs/skills.md). Release history is in
 
 ## Hard rules — these are non-negotiable
 
-1. **Run `ruff check src tests scripts` AND `pytest -q` before declaring a task done.** Both must be green. Test count is 549 and growing — but signal matters more than count, so don't add trivial tests just to inflate it. Regressions are not acceptable.
+1. **Run `ruff check src tests scripts` AND `pytest -q` before declaring a task done.** Both must be green. Test count is 550 and growing — but signal matters more than count, so don't add trivial tests just to inflate it. Regressions are not acceptable.
 
 2. **Do not introduce GPL dependencies.** RIN is MIT. The decision log explicitly rejects `PySide6-Fluent-Widgets` (GPL-3.0). LGPL is OK via dynamic linking (we use PySide6, pynput).
 
@@ -52,7 +52,7 @@ winget install --id=astral-sh.uv -e
 uv venv
 .\.venv\Scripts\Activate.ps1
 uv pip install -e ".[all,dev]"
-pytest -q                              # should print "549 passed"
+pytest -q                              # should print "550 passed"
 python -m rin --smoke
 ```
 

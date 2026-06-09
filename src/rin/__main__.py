@@ -13,6 +13,7 @@ resolves through the PYZ archive at runtime.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import sys
 
 from .app import run
@@ -24,6 +25,21 @@ from .utils import single_instance
 from .utils.logging import get_logger
 
 log = get_logger(__name__)
+
+
+def _configure_unicode_io() -> None:
+    """Force UTF-8 on stdout/stderr so CLI output containing Unicode
+    (arrows like "→", check/cross marks like "✓"/"✗") doesn't crash
+    on Windows cmd.exe / older PowerShell where the default code page
+    is cp1252. ``pythonw.exe`` may have ``None`` streams — skip safely.
+    Loguru's default stderr sink holds the same stream object so the
+    encoding change is picked up automatically.
+    """
+
+    for stream in (sys.stdout, sys.stderr):
+        if stream is not None and hasattr(stream, "reconfigure"):
+            with contextlib.suppress(Exception):
+                stream.reconfigure(encoding="utf-8", errors="replace")
 
 
 def _cmd_poi_discover(args: argparse.Namespace) -> int:
@@ -144,6 +160,7 @@ def _cmd_skill_validate(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _configure_unicode_io()
     parser = argparse.ArgumentParser(prog="rin", description="Record It Now")
     parser.add_argument(
         "--smoke",

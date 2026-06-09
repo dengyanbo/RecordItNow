@@ -2,6 +2,41 @@
 
 All notable changes to RIN — Record It Now.
 
+## v0.18.2 — CLI cp1252 hotfix (2026-06-09)
+
+Patch release. Fixes a Windows console encoding crash discovered during
+the v0.18.1 full end-to-end regression sweep.
+
+### What changed
+- **CLI stdout/stderr now reconfigure to UTF-8 on entry.** Commands like
+  `rin skill scaffold` and `rin skill validate` printed `→` (U+2192) and
+  `✓` / `✗` (U+2713 / U+2717) glyphs to stdout. When users launched
+  RIN's CLI from a stock `cmd.exe` (cp1252 code page) or any non-UTF-8
+  terminal, Python's default stdout `TextIOWrapper` raised
+  `UnicodeEncodeError` *after* writing the success line — leaving the
+  user with a confusing "Created skill … success" message followed by a
+  non-zero exit and a stack trace. Now `_configure_unicode_io()` in
+  `src/rin/__main__.py` calls `sys.stdout.reconfigure(encoding="utf-8",
+  errors="replace")` (and the same for `sys.stderr`) as the very first
+  step of `main()`. Safe on `pythonw.exe` where the streams are `None`.
+- **Permanent regression test** (`test_cli_subprocess_survives_cp1252_console`
+  in `tests/test_cli_skill.py`): spawns a child Python with
+  `PYTHONIOENCODING=cp1252:replace` and runs `rin skill scaffold` +
+  `rin skill validate` end-to-end, asserting both exit 0. This pins the
+  behaviour so we can never regress it silently.
+
+### Schema / migrations
+- None.
+
+### Tests
+- Suite now at **550 passed** (was 549 in v0.18.1). The single new test
+  is the cp1252 regression above.
+
+### Upgrade
+- No action required. Users who hit "Created skill … Error" output from
+  the CLI in v0.18.1 or earlier will see clean success output after
+  upgrading. The tray/GUI flow was never affected.
+
 ## v0.18.1 — Test suite cleanup (2026-06-09)
 
 Patch release. No runtime changes; trims the test suite from 579 → 549
