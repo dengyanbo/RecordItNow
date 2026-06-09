@@ -2,6 +2,47 @@
 
 All notable changes to RIN — Record It Now.
 
+## v0.10.0 — POI-aware summaries (Phase 1-A) (2026-06-09)
+
+First of four releases that turn the POI system from a flat list into a
+signal that actually steers the per-capture summary.
+
+### What was wrong before
+- `analyze_capture` summarized **first**, then classified into POI
+  buckets afterwards. The summary prompt got fed **every configured
+  POI name** regardless of whether the capture had anything to do with
+  it. A user with 30 POIs would see all 30 names in every prompt,
+  drowning out the actual content.
+- `TopicSkill.set_provider()` existed but was **never wired** in
+  production. Topics with `llm_judge=true` silently fell through to
+  "no provider attached" without ever calling the LLM.
+
+### What changed
+- `classify_capture` now runs **before** `build_summary`. The summary
+  prompt only lists POIs actually detected in the current capture.
+- When this capture matched no POIs, the prompt falls back to the
+  user's **top-5 most recently touched topics** (last 14 days) so
+  cross-capture continuity is preserved without flooding the prompt.
+- Hard cap of 5 POI names in the prompt regardless of source.
+- New prompt language: `"This capture touched the following tracked
+  topics: …. Focus your summary on what happened with them."`
+- `classify_capture(..., provider=...)` now wires the provider into
+  every skill that exposes `set_provider` (notably `TopicSkill`), so
+  `llm_judge` actually fires for opt-in topics.
+
+### Compatibility
+- Zero schema changes.
+- `_active_topic_names` kept for callers that still want the full
+  configured list (now mostly used by tests + Settings UI preview).
+
+### Tests
+- `tests/test_summarizer_poi_aware.py` rewritten to assert the new
+  detected-not-configured contract + the 5-POI cap + recent-history
+  fallback (16 tests, was 8).
+- New `tests/test_classify_before_summarize_ordering.py` (2 tests).
+- New `tests/test_classify_capture_provider_wiring.py` (2 tests).
+- Total: 408 passed (was 396).
+
 ## v0.9.1 — Installer winget multi-user fix (2026-06-09)
 
 Bugfix release. Same day as v0.9.0. Fixes a real install failure

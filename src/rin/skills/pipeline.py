@@ -8,6 +8,7 @@ from pathlib import Path
 from sqlalchemy import select
 
 from ..config import RinConfig
+from ..llm.base import Provider
 from ..storage import session
 from ..storage.models import Analysis, Bucket, Capture, CaptureBucket, CaptureFile, Transcript
 from ..utils.logging import get_logger
@@ -25,6 +26,7 @@ def classify_capture(
     ocr_text: str,
     transcript: str = "",
     skills: list[LoadedSkill] | None = None,
+    provider: Provider | None = None,
 ) -> list[int]:
     """Run every enabled skill on ``capture_id`` and upsert bucket links.
 
@@ -33,12 +35,27 @@ def classify_capture(
 
     A skill raising an exception is logged + skipped — one bad skill
     must not break the analysis pipeline.
+
+    ``provider`` is forwarded to any skill exposing ``set_provider`` (the
+    bundled ``topic`` skill needs this for its ``llm_judge`` tier). Skills
+    that do not expose the method are unaffected.
     """
 
     if skills is None:
         skills = active_skills(cfg)
     if not skills:
         return []
+
+    if provider is not None:
+        for loaded in skills:
+            setter = getattr(loaded.skill, "set_provider", None)
+            if callable(setter):
+                try:
+                    setter(provider)
+                except Exception as exc:  # noqa: BLE001 - per-skill isolation
+                    log.warning(
+                        f"Skill {loaded.skill.name!r} set_provider raised: {exc}"
+                    )
 
     # Pull the capture's metadata once (started_at/kind) so each skill
     # gets a frozen SkillContext.

@@ -5,26 +5,36 @@ The summarizer is the analysis pipeline's entry point. It:
 1. Loads the capture from the DB.
 2. For screenshots, calls :func:`analyze_image` per monitor file.
 3. For videos, calls :func:`analyze_video` per file.
-4. Asks the LLM for a one-paragraph rollup of the combined text.
-5. Persists an :class:`Analysis` (and a :class:`Transcript` for videos).
-6. Best-effort upserts the embedding into ChromaDB.
+4. **Pre-classifies** the capture (skills detect POIs from raw OCR + transcript).
+5. Asks the LLM for a one-paragraph rollup of the combined text, focused on
+   any POIs that were actually detected in this capture (instead of dumping
+   every configured POI name into every prompt).
+6. Persists an :class:`Analysis` (and a :class:`Transcript` for videos).
+7. Best-effort upserts the embedding into ChromaDB.
 
 Every step is wrapped so a single failure (no LLM, no OCR, missing
 file) doesn't poison the whole run.
+
+Phase 1-A (v0.10.0) reordered classify → summarize so the prompt only
+mentions topics that actually appear in the capture. Pre-classify uses
+empty ``summary`` (the skills only need OCR / transcript). When classify
+yields no POIs we fall back to the user's top-K most-recently-touched
+topics so cross-capture continuity is preserved.
 """
 from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from datetime import datetime, timedelta
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import desc, select
 
 from ..config import RinConfig
 from ..llm import make_provider
 from ..llm.base import ImageAnalysis, LLMError, Provider, ProviderUnavailable
 from ..storage import session, vector_store
-from ..storage.models import Analysis, Capture
+from ..storage.models import Analysis, Bucket, Capture, CaptureBucket
 from ..storage.models import Transcript as TranscriptModel
 from ..utils.logging import get_logger
 from .image_analyzer import analyze_image
@@ -32,6 +42,16 @@ from .transcribe import Transcript
 from .video_analyzer import VideoAnalysis, analyze_video
 
 log = get_logger(__name__)
+
+# Phase 1-A safety net: never let the prompt list more than this many
+# POI names regardless of how many were detected or how many topics the
+# user has configured.
+_MAX_ACTIVE_POIS = 5
+
+# Phase 1-A fallback window: when classify returns no POIs for the
+# current capture, look back this many days for the user's recently
+# touched topics to preserve cross-capture continuity.
+_RECENT_POI_WINDOW_DAYS = 14
 
 
 def build_summary(
@@ -71,9 +91,9 @@ def build_summary(
     prompt = ""
     if tracked_topics:
         prompt += (
-            "The user is currently tracking these topics: "
-            f"{', '.join(tracked_topics)}. If any of these are visible, mention "
-            "them explicitly.\n"
+            "This capture touched the following tracked topics: "
+            f"{', '.join(tracked_topics)}. Focus your summary on what happened "
+            "with them.\n"
         )
     prompt += (
         "You are summarizing a user's screen activity for a personal journal. "
@@ -117,7 +137,6 @@ def analyze_capture(
     image_analyses: list[ImageAnalysis] = []
     video_analyses: list[VideoAnalysis] = []
     transcript_obj: Transcript | None = None
-    active_pois: list[str] = []
 
     if kind == "screenshot":
         for f in files:
@@ -131,11 +150,37 @@ def analyze_capture(
                 if va.transcript.text:
                     transcript_obj = va.transcript
 
+    all_ocr = "\n\n".join(
+        [ia.text for ia in image_analyses if ia.text]
+        + [va.ocr_text for va in video_analyses if va.ocr_text]
+    )
+    transcript_text = transcript_obj.text if transcript_obj else ""
+
+    # Phase 1-A: pre-classify BEFORE building the summary so the LLM
+    # prompt can list only the topics that actually appear in this
+    # capture (not every name in [skills.topic]). classify_capture is
+    # wrapped — a crash here must not block the analysis row.
+    detected_pois: list[str] = []
     try:
-        active_pois = _active_topic_names(cfg)
-    except Exception as exc:
-        log.warning(f"Failed to load active topics from config: {exc}")
-        active_pois = []
+        from ..skills.pipeline import classify_capture
+
+        bucket_ids = classify_capture(
+            capture_id,
+            cfg,
+            summary="",  # not yet built; skills detect from OCR + transcript
+            ocr_text=all_ocr,
+            transcript=transcript_text,
+            provider=provider,
+        )
+        detected_pois = _topic_pois_from_buckets(bucket_ids)
+    except Exception as exc:  # pragma: no cover - defensive boundary
+        log.warning(f"Skill classification failed for capture {capture_id}: {exc}")
+        bucket_ids = []
+
+    # If this capture didn't trip any topic, prefer the user's recently
+    # touched topics so the prompt still has continuity, then cap.
+    active_pois = detected_pois or _recent_topic_pois(limit=_MAX_ACTIVE_POIS)
+    active_pois = active_pois[:_MAX_ACTIVE_POIS]
 
     with session() as s:
         cap = s.get(Capture, capture_id)
@@ -147,10 +192,6 @@ def analyze_capture(
             video_analyses=video_analyses,
             provider=provider,
             active_pois=active_pois,
-        )
-        all_ocr = "\n\n".join(
-            [ia.text for ia in image_analyses if ia.text]
-            + [va.ocr_text for va in video_analyses if va.ocr_text]
         )
         analysis = Analysis(
             capture_id=capture_id,
@@ -175,23 +216,6 @@ def analyze_capture(
         analysis_id = analysis.id
 
     _push_to_index(capture_id, summary + "\n" + all_ocr, embedder)
-
-    # v0.5+: hand the capture to every enabled skill for categorization.
-    # Failures inside a skill are isolated by classify_capture itself, but
-    # we still wrap the call so a top-level crash doesn't poison the
-    # batch.
-    try:
-        from ..skills.pipeline import classify_capture
-
-        classify_capture(
-            capture_id,
-            cfg,
-            summary=summary,
-            ocr_text=all_ocr,
-            transcript=transcript_obj.text if transcript_obj else "",
-        )
-    except Exception as exc:  # pragma: no cover - defensive boundary
-        log.warning(f"Skill classification failed for capture {capture_id}: {exc}")
 
     log.info(f"Analyzed capture {capture_id} → analysis_id={analysis_id}")
     return analysis_id
@@ -292,6 +316,11 @@ def _push_to_index(
 def _active_topic_names(cfg: RinConfig) -> list[str]:
     """Return the names of every topic in [skills.topic] when the
     topic skill is enabled. Empty list if disabled or not configured.
+
+    Phase 1-A note: this is no longer used by ``analyze_capture`` (which
+    now sources POIs from the classify step and recent-history fallback).
+    It is kept for backwards compatibility with external callers and a
+    handful of tests.
     """
     if "topic" not in (cfg.skills.enabled or []):
         return []
@@ -304,3 +333,66 @@ def _active_topic_names(cfg: RinConfig) -> list[str]:
             if isinstance(name, str) and name.strip():
                 names.append(name.strip())
     return names
+
+
+def _topic_pois_from_buckets(bucket_ids: list[int]) -> list[str]:
+    """Resolve ``bucket_ids`` (any skill) → ``[title]`` for topic buckets only.
+
+    classify_capture returns ids from every enabled skill; we only want
+    topic POIs for the summarizer prompt. Order matches the input order
+    so the most-relevant detected POI appears first when truncated.
+    """
+
+    if not bucket_ids:
+        return []
+    with session() as s:
+        rows = s.execute(
+            select(Bucket.id, Bucket.title).where(
+                Bucket.id.in_(bucket_ids),
+                Bucket.skill_name == "topic",
+            )
+        ).all()
+    by_id: dict[int, str] = {row.id: (row.title or "").strip() for row in rows}
+    out: list[str] = []
+    seen: set[str] = set()
+    for bid in bucket_ids:
+        title = by_id.get(bid)
+        if not title or title in seen:
+            continue
+        seen.add(title)
+        out.append(title)
+    return out
+
+
+def _recent_topic_pois(*, limit: int = _MAX_ACTIVE_POIS) -> list[str]:
+    """Top-K topic POIs by most-recent ``CaptureBucket.created_at``.
+
+    Used as the fallback when classify_capture returned no topic
+    buckets for the current capture — keeps cross-capture continuity
+    without flooding the prompt with every configured topic.
+    """
+
+    if limit <= 0:
+        return []
+    cutoff = datetime.now() - timedelta(days=_RECENT_POI_WINDOW_DAYS)
+    with session() as s:
+        rows = s.execute(
+            select(Bucket.title)
+            .join(CaptureBucket, CaptureBucket.bucket_id == Bucket.id)
+            .where(
+                Bucket.skill_name == "topic",
+                CaptureBucket.created_at >= cutoff,
+            )
+            .order_by(desc(CaptureBucket.created_at))
+        ).all()
+    out: list[str] = []
+    seen: set[str] = set()
+    for (title,) in rows:
+        clean = (title or "").strip()
+        if not clean or clean in seen:
+            continue
+        seen.add(clean)
+        out.append(clean)
+        if len(out) >= limit:
+            break
+    return out

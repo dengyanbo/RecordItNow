@@ -7,11 +7,17 @@ import pytest
 
 import rin.analysis.summarizer as summarizer_module
 from rin import paths as paths_mod
-from rin.analysis.summarizer import _active_topic_names, analyze_capture, build_summary
+from rin.analysis.summarizer import (
+    _active_topic_names,
+    _recent_topic_pois,
+    _topic_pois_from_buckets,
+    analyze_capture,
+    build_summary,
+)
 from rin.config import RinConfig
 from rin.llm.base import ImageAnalysis, Provider, ProviderCapabilities
 from rin.storage import db, init_db, session
-from rin.storage.models import Capture, CaptureFile
+from rin.storage.models import Bucket, Capture, CaptureBucket, CaptureFile
 from rin.utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -103,7 +109,7 @@ def test_build_summary_no_pois_unchanged_prompt() -> None:
     )
 
     assert summary == "FINAL SUMMARY"
-    assert "currently tracking these topics" not in provider.prompts[0]
+    assert "tracked topics" not in provider.prompts[0]
 
 
 def test_build_summary_with_pois_prepends_context() -> None:
@@ -119,8 +125,9 @@ def test_build_summary_with_pois_prepends_context() -> None:
 
     prompt = provider.prompts[0]
     assert prompt.startswith(
-        "The user is currently tracking these topics: Project Atlas, Customer Ops, "
-        "Sprint Planning. If any of these are visible, mention them explicitly.\n"
+        "This capture touched the following tracked topics: Project Atlas, "
+        "Customer Ops, Sprint Planning. Focus your summary on what happened "
+        "with them.\n"
     )
 
 
@@ -165,13 +172,106 @@ def test_active_topic_names_tolerates_malformed_topics() -> None:
     assert _active_topic_names(cfg) == ["Valid Topic"]
 
 
-def test_analyze_capture_passes_active_pois_to_build_summary(
+def test_topic_pois_from_buckets_filters_by_skill_name(rin_db: Path) -> None:
+    with session() as s:
+        topic_bucket = Bucket(skill_name="topic", key="Atlas", title="Atlas")
+        ticket_bucket = Bucket(skill_name="support_ticket", key="T-1", title="T-1")
+        s.add_all([topic_bucket, ticket_bucket])
+        s.flush()
+        topic_id = topic_bucket.id
+        ticket_id = ticket_bucket.id
+
+    out = _topic_pois_from_buckets([ticket_id, topic_id])
+
+    assert out == ["Atlas"]
+
+
+def test_topic_pois_from_buckets_preserves_input_order_dedupes(rin_db: Path) -> None:
+    with session() as s:
+        b1 = Bucket(skill_name="topic", key="Atlas", title="Atlas")
+        b2 = Bucket(skill_name="topic", key="Beacon", title="Beacon")
+        s.add_all([b1, b2])
+        s.flush()
+        ids = [b2.id, b1.id, b2.id]
+
+    assert _topic_pois_from_buckets(ids) == ["Beacon", "Atlas"]
+
+
+def test_topic_pois_from_buckets_empty_returns_empty() -> None:
+    assert _topic_pois_from_buckets([]) == []
+
+
+def test_recent_topic_pois_returns_topk_most_recent(rin_db: Path) -> None:
+    from datetime import timedelta
+
+    cap_id = _insert_screenshot_capture(rin_db / "capture")
+    now = datetime.now()
+    with session() as s:
+        # Insert with explicit ascending created_at so ordering is deterministic
+        # (sqlite's func.now() has only second resolution; same-millisecond
+        # inserts won't sort correctly). Use offsets relative to "now" so the
+        # 14-day fallback window always covers these rows.
+        for offset, name in enumerate(["Older", "Middle", "Newer", "Newest"]):
+            b = Bucket(skill_name="topic", key=name, title=name)
+            s.add(b)
+            s.flush()
+            s.add(
+                CaptureBucket(
+                    capture_id=cap_id,
+                    bucket_id=b.id,
+                    created_at=now - timedelta(hours=10 - offset),
+                )
+            )
+
+    out = _recent_topic_pois(limit=3)
+
+    assert out == ["Newest", "Newer", "Middle"]
+
+
+def test_recent_topic_pois_excludes_non_topic_skills(rin_db: Path) -> None:
+    cap_id = _insert_screenshot_capture(rin_db / "capture")
+    with session() as s:
+        topic = Bucket(skill_name="topic", key="Atlas", title="Atlas")
+        other = Bucket(skill_name="support_ticket", key="T-1", title="T-1")
+        s.add_all([topic, other])
+        s.flush()
+        s.add_all([
+            CaptureBucket(capture_id=cap_id, bucket_id=topic.id),
+            CaptureBucket(capture_id=cap_id, bucket_id=other.id),
+        ])
+
+    assert _recent_topic_pois(limit=5) == ["Atlas"]
+
+
+def test_recent_topic_pois_empty_when_nothing_tracked(rin_db: Path) -> None:
+    assert _recent_topic_pois(limit=5) == []
+
+
+def test_analyze_capture_uses_detected_pois_not_configured(
     rin_db: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Phase 1-A contract: ``active_pois`` passed to ``build_summary`` reflects
+    *detected* topic buckets (returned by classify_capture), not the full list
+    of configured names. Today's bug was that 30 configured POIs would flood
+    every prompt regardless of relevance.
+    """
+
     cap_id = _insert_screenshot_capture(rin_db / "capture")
-    cfg = _topic_cfg([{"name": "MyTopic", "keywords": ["topic"]}])
+    cfg = _topic_cfg([
+        {"name": "MyTopic", "keywords": ["topic"]},
+        {"name": "Unrelated", "keywords": ["nope"]},
+        {"name": "AnotherMiss", "keywords": ["xyz"]},
+    ])
     seen: dict[str, object] = {}
+
+    def fake_classify(capture_id, _cfg, **kwargs):  # noqa: ARG001
+        with session() as s:
+            b = Bucket(skill_name="topic", key="MyTopic", title="MyTopic")
+            s.add(b)
+            s.flush()
+            s.add(CaptureBucket(capture_id=capture_id, bucket_id=b.id))
+            return [b.id]
 
     def fake_build_summary(capture: Capture, **kwargs) -> str:
         seen["capture_id"] = capture.id
@@ -179,7 +279,7 @@ def test_analyze_capture_passes_active_pois_to_build_summary(
         return "brief"
 
     monkeypatch.setattr(summarizer_module, "build_summary", fake_build_summary)
-    monkeypatch.setattr("rin.skills.pipeline.classify_capture", lambda *args, **kwargs: [])
+    monkeypatch.setattr("rin.skills.pipeline.classify_capture", fake_classify)
 
     aid = analyze_capture(
         cap_id,
@@ -189,4 +289,83 @@ def test_analyze_capture_passes_active_pois_to_build_summary(
 
     assert isinstance(aid, int)
     assert seen["capture_id"] == cap_id
+    # Only the detected POI ends up in the prompt — NOT the 2 unrelated ones.
     assert seen["active_pois"] == ["MyTopic"]
+
+
+def test_analyze_capture_falls_back_to_recent_pois_when_no_match(
+    rin_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When classify returns no buckets for *this* capture, the summarizer
+    falls back to the user's recently touched topics so prompts still
+    have continuity."""
+
+    # Pre-populate a recent topic touched by an earlier capture.
+    prev_cap = _insert_screenshot_capture(rin_db / "prev")
+    with session() as s:
+        recent = Bucket(skill_name="topic", key="Recent", title="Recent")
+        s.add(recent)
+        s.flush()
+        s.add(CaptureBucket(capture_id=prev_cap, bucket_id=recent.id))
+
+    cap_id = _insert_screenshot_capture(rin_db / "new")
+    cfg = _topic_cfg([{"name": "Recent", "keywords": ["yyy"]}])
+    seen: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "rin.skills.pipeline.classify_capture",
+        lambda *a, **kw: [],  # no detection this round
+    )
+
+    def fake_build_summary(capture: Capture, **kwargs) -> str:
+        seen.update(kwargs)
+        return "brief"
+
+    monkeypatch.setattr(summarizer_module, "build_summary", fake_build_summary)
+
+    analyze_capture(
+        cap_id,
+        cfg,
+        image_analyzer_fn=lambda path, provider=None: ImageAnalysis(summary="hi", text="ocr"),
+    )
+
+    assert seen["active_pois"] == ["Recent"]
+
+
+def test_analyze_capture_caps_active_pois_at_5(
+    rin_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Safety net: prompt never lists more than 5 POIs even if classify
+    returned more (e.g. capture really did touch 10 topics)."""
+
+    cap_id = _insert_screenshot_capture(rin_db / "capture")
+    cfg = _topic_cfg([{"name": f"POI-{i}"} for i in range(10)])
+    seen: dict[str, object] = {}
+
+    def fake_classify(capture_id, _cfg, **kwargs):  # noqa: ARG001
+        ids: list[int] = []
+        with session() as s:
+            for i in range(10):
+                b = Bucket(skill_name="topic", key=f"POI-{i}", title=f"POI-{i}")
+                s.add(b)
+                s.flush()
+                ids.append(b.id)
+                s.add(CaptureBucket(capture_id=capture_id, bucket_id=b.id))
+        return ids
+
+    monkeypatch.setattr("rin.skills.pipeline.classify_capture", fake_classify)
+    monkeypatch.setattr(
+        summarizer_module,
+        "build_summary",
+        lambda cap, **kw: (seen.update(kw) or "brief"),
+    )
+
+    analyze_capture(
+        cap_id,
+        cfg,
+        image_analyzer_fn=lambda path, provider=None: ImageAnalysis(summary="x", text="y"),
+    )
+
+    assert len(seen["active_pois"]) == 5
