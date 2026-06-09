@@ -199,6 +199,46 @@ def test_suggested_table_renders_evidence_quote_column(qapp, rin_db) -> None:
     )
 
 
+def test_create_from_capture_button_seeds_new_poi(
+    qapp,
+    rin_db,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Phase 2-B: the helper output flows into _in_memory_topics via the editor."""
+
+    from rin.poi.from_capture import CaptureSeed
+    from rin.skills.builtin.topic.skill import TopicSpec
+    from rin.ui.poi_tab import _TopicEditorDialog
+
+    tab = TopicsAndPoIsTab(RinConfig())
+    seed = CaptureSeed(
+        capture_id=42,
+        topic=TopicSpec(name="INC1234567", keywords=["INC1234567"], regex=[r"INC\d{7}"]),
+        evidence_quote="…INC1234567 login fix…",
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_exec(self: _TopicEditorDialog) -> int:
+        captured["dialog"] = self
+        self._topic = self._fields.topic_data()
+        if self._topic is not None:
+            from rin.ui.poi_tab import _topic_from_form_data
+
+            self._topic = _topic_from_form_data(self._topic, aliases=self._aliases)
+        return int(_TopicEditorDialog.DialogCode.Accepted)
+
+    monkeypatch.setattr(_TopicEditorDialog, "exec", fake_exec)
+
+    tab._open_seeded_editor(seed)
+
+    assert tab._my_pois_table.rowCount() == 1
+    assert tab._my_pois_table.item(0, 0).text() == "INC1234567"
+    names = [topic.name for topic in tab._in_memory_topics]
+    assert names == ["INC1234567"]
+
+
+
 def test_live_preview_panel_hidden_until_input(qapp) -> None:
     """Phase 2-A: empty form -> preview panel stays hidden."""
 

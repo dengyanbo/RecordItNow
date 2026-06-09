@@ -6,6 +6,7 @@ from datetime import datetime
 from PySide6.QtCore import QObject, QRunnable, QSize, Qt, QThreadPool, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -21,6 +22,10 @@ from sqlalchemy import select
 from ..config import RinConfig
 from ..poi import discovery as poi_discovery
 from ..skills.builtin.topic.skill import TopicConfig, TopicSpec
+from ..skills.builtin.topic.templates import (
+    PERSONA_TEMPLATES,
+    template_by_key,
+)
 from ..storage import session
 from ..storage.models import PoICandidate
 from ..utils.logging import get_logger
@@ -31,6 +36,8 @@ from .style import palette_to_qss
 from .theme import resolve, with_accent
 
 log = get_logger(__name__)
+
+_MAX_WIZARD_TOPICS = 10
 
 
 class _DiscoverySignals(QObject):
@@ -107,12 +114,30 @@ class _ManualPage(_HeaderPage):
             body="Add up to three Points of Interest now, or leave this blank and let discovery suggest some next.",
         )
         self._added_topics: list[TopicSpec] = []
+        self._applied_template_keys: set[str] = set()
 
         card = QFrame()
         card.setObjectName("card")
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(16, 16, 16, 16)
         card_layout.setSpacing(10)
+
+        persona_row = QHBoxLayout()
+        persona_row.setContentsMargins(0, 0, 0, 0)
+        persona_row.setSpacing(8)
+        persona_label = QLabel("Starter pack")
+        persona_label.setProperty("role", "field-label")
+        persona_row.addWidget(persona_label, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        self._persona_combo = QComboBox()
+        self._persona_combo.addItem("Custom (start blank)", userData="")
+        for template in PERSONA_TEMPLATES:
+            self._persona_combo.addItem(template.display_name, userData=template.key)
+        self._persona_combo.currentIndexChanged.connect(
+            self._on_persona_changed
+        )
+        persona_row.addWidget(self._persona_combo, 1)
+        card_layout.addLayout(persona_row)
 
         added_label = QLabel("Already added")
         added_label.setProperty("role", "field-label")
@@ -145,6 +170,30 @@ class _ManualPage(_HeaderPage):
     def added_topics(self) -> list[TopicSpec]:
         return [topic.model_copy(deep=True) for topic in self._added_topics]
 
+    def _on_persona_changed(self, _index: int) -> None:
+        key = self._persona_combo.currentData()
+        if not key or key in self._applied_template_keys:
+            return
+        template = template_by_key(key)
+        if template is None:
+            return
+        existing_keys = {
+            topic.name.strip().casefold() for topic in self._added_topics
+        }
+        for topic in template.topics:
+            name_key = topic.name.strip().casefold()
+            if not name_key or name_key in existing_keys:
+                continue
+            self._added_topics.append(topic.model_copy(deep=True))
+            existing_keys.add(name_key)
+        self._applied_template_keys.add(template.key)
+        plural = "" if len(template.topics) == 1 else "s"
+        self._status.setText(
+            f"Loaded {len(template.topics)} starter PoI{plural} from “{template.display_name}”."
+        )
+        self._status.show()
+        self._render_added_topics()
+
     def _on_add_clicked(self, row: _ManualInputRow) -> None:
         name = row.name_edit.text().strip()
         description = row.description_edit.text().strip()
@@ -152,8 +201,10 @@ class _ManualPage(_HeaderPage):
             self._status.setText("Enter a name before adding a PoI.")
             self._status.show()
             return
-        if len(self._added_topics) >= 3:
-            self._status.setText("You can add up to three PoIs in this wizard.")
+        if len(self._added_topics) >= _MAX_WIZARD_TOPICS:
+            self._status.setText(
+                f"You can add up to {_MAX_WIZARD_TOPICS} PoIs in this wizard."
+            )
             self._status.show()
             return
         key = name.casefold()
@@ -207,7 +258,7 @@ class _ManualPage(_HeaderPage):
                 layout.addWidget(remove_btn, 0, Qt.AlignmentFlag.AlignRight)
                 self._added_list.addWidget(row)
 
-        full = len(self._added_topics) >= 3
+        full = len(self._added_topics) >= _MAX_WIZARD_TOPICS
         for row in self._rows:
             row.add_button.setEnabled(not full)
 

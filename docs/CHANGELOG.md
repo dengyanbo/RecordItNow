@@ -2,6 +2,53 @@
 
 All notable changes to RIN — Record It Now.
 
+## v0.15.0 — "Create PoI from capture" + persona starter packs (Phase 2-B) (2026-06-09)
+
+Second "POI authoring assist" release. Lowers the friction of bootstrapping
+a useful PoI set: pre-canned persona templates seed common patterns in
+one click, and any recent capture can be promoted to a new PoI via the
+strongest signal it contains.
+
+### What changed
+- **Persona starter packs** on the wizard's Manual page. Dropdown lets
+  users pick "Software Engineer", "Customer Success", "Researcher", or
+  "Engineering Manager" and pre-populates 3–4 sensible PoIs that they
+  can then edit or remove. "Custom (start blank)" keeps the v0.14
+  behaviour. Manual rows still work after a persona is applied — the
+  combined cap is now 10 (was 3) so personas + personal additions
+  coexist comfortably.
+- **`PERSONA_TEMPLATES` module** (`rin.skills.builtin.topic.templates`)
+  exposes the templates with helpers `list_templates()`,
+  `template_by_key()`, and `merge_template_topics()` for dedupe-by-name.
+- **"Create from capture…" button** on Settings → Topics & PoIs (next
+  to "Discover now…"). Opens a picker showing the last 30 captures
+  (cap-N, timestamp, kind, summary preview); selection mines the single
+  capture for its strongest signal (regex → phrase → domain → fallback)
+  and opens the existing editor dialog pre-filled with a `TopicSpec`
+  that the user reviews + saves.
+- **New `rin.poi.from_capture` module**. `mine_topic_from_capture(id)`
+  reuses the discovery regex / phrase / domain primitives but skips the
+  multi-capture `min_evidence` thresholds since the user is explicitly
+  pointing at one capture. Returns a `CaptureSeed` bundle (capture id +
+  TopicSpec + evidence quote).
+
+### Limits & safety
+- Picker scans only the most recent 30 captures by `started_at` to keep
+  the dialog snappy and avoid leaking older OCR text into the UI.
+- Mined `TopicSpec` is capped at 8 keywords / 4 regex patterns.
+- If the mine returns `None` (capture deleted between picker render and
+  click), the UI surfaces a clear "Capture not found" message.
+
+### No schema changes
+This release adds **no migrations** — it's a pure UX layer over the
+existing discovery + topic-skill infrastructure.
+
+### Tests
++19 tests (511 total): 16 unit tests for `mine_topic_from_capture` +
+persona templates, plus 3 UI tests covering the persona dropdown, the
+persona + manual coexistence flow, and the capture-seed → editor
+flow.
+
 ## v0.14.0 — Live regex preview + evidence quotes in wizard (Phase 2-A) (2026-06-09)
 
 First "POI authoring assist" release. Surfaces *why* a PoI was

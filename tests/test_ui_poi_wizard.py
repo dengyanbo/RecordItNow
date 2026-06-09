@@ -295,3 +295,55 @@ def test_discovery_page_renders_evidence_quote(
         "Project Atlas review meeting agenda" in text for text in label_texts
     )
 
+
+def test_manual_page_persona_dropdown_prepopulates_topics(
+    qapp,
+    rin_db,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Phase 2-B: selecting a persona pre-populates the wizard's manual page."""
+
+    wizard = _make_sync_wizard(qapp, monkeypatch, [])
+    wizard.next()
+    _drain(qapp)
+
+    page = wizard._manual_page
+    combo = page._persona_combo
+    # Default selection is "Custom" → no topics yet.
+    assert combo.currentData() == ""
+    assert page.added_topics() == []
+
+    engineer_index = combo.findData("engineer")
+    assert engineer_index > 0
+    combo.setCurrentIndex(engineer_index)
+    _drain(qapp)
+
+    added = page.added_topics()
+    assert len(added) > 0
+    assert any(topic.name == "Pull Requests" for topic in added)
+
+
+def test_manual_page_persona_then_manual_add_coexist(
+    qapp,
+    rin_db,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Phase 2-B: after a 4-topic persona pack, manual add still works."""
+
+    wizard = _make_sync_wizard(qapp, monkeypatch, [])
+    wizard.next()
+    _drain(qapp)
+
+    page = wizard._manual_page
+    combo = page._persona_combo
+    combo.setCurrentIndex(combo.findData("engineer"))
+    _drain(qapp)
+
+    row = page._rows[0]
+    assert row.add_button.isEnabled()
+    row.name_edit.setText("My side project")
+    row.add_button.click()
+    _drain(qapp)
+
+    names = [topic.name for topic in page.added_topics()]
+    assert "My side project" in names
