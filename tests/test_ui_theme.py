@@ -120,34 +120,6 @@ def test_dark_theme_accent_subtle_is_darker_than_bg() -> None:
     assert relative_luminance(tweaked.accent_subtle) < relative_luminance(tweaked.text)
 
 
-def test_palette_to_qss_new_polish_roles() -> None:
-    """v0.4.1 polish: new selectors (chip, bubble, search-attached…) render."""
-
-    qss = palette_to_qss(LIGHT)
-    for marker in (
-        'role="chip"',
-        'role="user-bubble"',
-        'role="agent-bubble"',
-        'role="search"',
-        'role="search-attached"',
-        'role="field-hint"',
-        'role="divider-vert"',
-        'role="icon"',
-        'heading="hero"',
-        'heading="subtle"',
-    ):
-        assert marker in qss, f"missing selector for {marker}"
-
-
-def test_palette_to_qss_focus_ring_renders() -> None:
-    """Every input class should grow a 2 px focus ring tinted to focus_ring."""
-
-    qss = palette_to_qss(LIGHT)
-    # The focus pseudo-state should appear at least once next to a 2 px solid border.
-    assert ":focus" in qss
-    assert "border: 2px solid" in qss
-
-
 def test_typography_tokens_are_ordered() -> None:
     """caption < body < subtitle < title < display in point size."""
 

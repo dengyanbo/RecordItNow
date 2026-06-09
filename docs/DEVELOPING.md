@@ -53,7 +53,7 @@
 | `src/rin/reports/` | Daily / weekly Markdown generator + APScheduler + FTS5 search + PDF/HTML export + Outlook/Google Calendar integrations. |
 | `src/rin/ui/` | PySide6 tray + Settings shell/tabs + Reports + Search + first-run Wizard + Spinner/BusyOverlay progress widgets. `theme.py` + `style.py` own the QSS design tokens. |
 | `src/rin/utils/` | Logging (loguru), autostart, panic hotkey, encryption (AES-256-GCM + DPAPI), thumbnail (PIL), data export, telemetry (Sentry), diagnostics, single-instance lock, platform_compat dispatcher. |
-| `tests/` | 579 tests, all green. Run with `pytest -q`. Layout mirrors `src/rin/`. |
+| `tests/` | 549 tests, all green. Run with `pytest -q`. Layout mirrors `src/rin/`. |
 | `scripts/` | `install.ps1` (user installer), `build_release.ps1` (source zip), `build_exe.ps1` + `RIN.spec` (PyInstaller .exe), `prefetch_models.py`, `dev_run.ps1`, `capture_ui_screenshots.py`. |
 
 ## Data flow — one tap to a searchable answer
@@ -150,7 +150,7 @@ Why things are the way they are. Verify each at the cited file.
 | **APScheduler `BackgroundScheduler` + `threading.Lock`** | Manual "Analyze now" can race with the hourly tick; non-blocking lock skips duplicates. Reviewed in v0.3.1. | `src/rin/analysis/scheduler.py` |
 | **Skills are drop-in folders, not pip packages** | Lower friction for end-user customization; pip-installable skills (`rin-skill-*`) deferred | `src/rin/skills/registry.py`, `docs/skills.md` |
 | **`SkipInfo` records every short-circuit reason** | Tray surfaces context-aware notifications (paused vs blacklist vs disk_full vs failed) instead of one generic "Screenshot failed". Reviewed in v0.7.1 (R22). | `src/rin/capture/service.py`, `src/rin/ui/tray.py` |
-| **`TrayApp._prewarm_menu()` paid at boot** | Cold `sizeHint()` on an emoji-loaded `QMenu` is ~579 ms; pre-warming 250 ms after `tray.show()` drops first-click to ~4 ms. Reviewed in v0.7.1 (R21). | `src/rin/ui/tray.py` |
+| **`TrayApp._prewarm_menu()` paid at boot** | Cold `sizeHint()` on an emoji-loaded `QMenu` is ~549 ms; pre-warming 250 ms after `tray.show()` drops first-click to ~4 ms. Reviewed in v0.7.1 (R21). | `src/rin/ui/tray.py` |
 | **Pause moved from tray menu to Settings → Privacy** | The tray was getting cluttered; pause sits naturally next to privacy blacklist + encryption-at-rest. Panic hotkey remains. v0.7.1 (R23). | `src/rin/ui/settings_dialog.py:_build_privacy_tab` |
 | **Bilingual READMEs (en / zh)** | Author + many users are bilingual Chinese / English | `README.md`, `README.zh-CN.md` |
 | **R24 — New bundled `topic` skill instead of refactoring `support_ticket`** | Two different use cases — IDs are precise (regex), topics are fuzzy (keywords/LLM). Keep both. | `src/rin/skills/builtin/topic/`, `src/rin/skills/builtin/support_ticket/`, `docs/skills.md` |
@@ -346,7 +346,7 @@ Optional extras (declared in `pyproject.toml`):
 ## Testing
 
 ```powershell
-pytest -q                              # all 579 tests, ~60-90 s on a warm cache
+pytest -q                              # all 549 tests, ~60-90 s on a warm cache
 pytest -q --cov=rin --cov-report=term-missing  # with coverage
 pytest tests/test_perf_*.py            # pytest-benchmark suite
 ruff check src tests scripts

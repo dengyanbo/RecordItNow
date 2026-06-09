@@ -32,13 +32,6 @@ def test_spinner_start_stop_cycle(qapp) -> None:
     assert not sp.is_running()
 
 
-def test_spinner_set_accent_does_not_raise(qapp) -> None:
-    sp = Spinner()
-    sp.set_accent("#000000")
-    sp.set_accent("#FFFFFF")
-    # No assertion on internal state — just confirm the call survives.
-
-
 def test_spinner_minimum_size_enforced(qapp) -> None:
     # The clamp prevents an unrenderable 4 px spinner.
     sp = Spinner(size=4)

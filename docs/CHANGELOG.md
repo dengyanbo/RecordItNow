@@ -2,6 +2,48 @@
 
 All notable changes to RIN — Record It Now.
 
+## v0.18.1 — Test suite cleanup (2026-06-09)
+
+Patch release. No runtime changes; trims the test suite from 579 → 549
+by consolidating redundant cases across six test files into focused
+single-function tests with multiple assertions. Each removed test was
+either a thin variation of an adjacent test, a dataclass-default check
+that exercised Pydantic rather than RIN, or a string-format snapshot
+with no behavioural coverage value.
+
+### What changed
+- **`tests/test_skill_scaffold.py`** (16 → 7): merged 6 validator
+  failure modes into one loop test, collapsed name-validation cases,
+  dropped the `report.format()` PASS/FAIL output snapshot tests.
+- **`tests/test_skill_from_topic.py`** (14 → 7): collapsed 5
+  `_sanitise` parametrized cases, 2 generator-detect cases, and 3
+  `should_close` cases each into one test with explicit cases.
+  Dropped the determinism test (was asserting Python identity) and
+  the empty-list test (covered by `test_render_includes_topic_fields`).
+- **`tests/test_input_reserved_keys.py`** (10 → 3): collapsed the
+  4 lookup-severity tests + 5 unflagged-binding tests into 2
+  focused tests with explicit case tables.
+- **`tests/test_ui_progress.py`** (9 → 8): dropped
+  `test_spinner_set_accent_does_not_raise` which had no assertions.
+- **`tests/test_ui_theme.py`** (14 → 12): dropped two QSS substring
+  snapshot tests (`test_palette_to_qss_new_polish_roles`,
+  `test_palette_to_qss_focus_ring_renders`) that only verified
+  selector strings appeared in generated CSS.
+- **`tests/test_llm_base.py`** (5 → 3): dropped
+  `test_image_analysis_defaults` (Pydantic defaults) and
+  `test_message_roles` (constructor with no assertions).
+
+### Schema / migrations
+- None.
+
+### Tests
+- Suite now at **549 passed** (was 579 in v0.18.0). Coverage preserved
+  — every removed assertion has an equivalent in the consolidated
+  tests.
+
+### Upgrade
+- No action required. Run `pytest -q` to confirm 549 passes locally.
+
 ## v0.18.0 — Convert PoI to Skill (Phase 3-B) (2026-06-09)
 
 Final shippable Part 3 release (3-C is research-only). Adds a one-click

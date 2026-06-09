@@ -15,19 +15,6 @@ from rin.llm.base import (
 )
 
 
-def test_image_analysis_defaults() -> None:
-    ia = ImageAnalysis(summary="hi")
-    assert ia.summary == "hi"
-    assert ia.text == ""
-    assert ia.entities == {}
-
-
-def test_message_roles() -> None:
-    Message(role="user", content="a")
-    Message(role="system", content="b")
-    Message(role="assistant", content="c")
-
-
 def test_provider_unavailable_is_llmerror() -> None:
     assert issubclass(ProviderUnavailable, LLMError)
 
@@ -55,3 +42,4 @@ def test_health_check_returns_false_when_call_fails() -> None:
             raise LLMError("nope")
 
     assert BoomProvider().health_check() is False
+
