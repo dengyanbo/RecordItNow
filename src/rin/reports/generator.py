@@ -69,6 +69,10 @@ class PoIReportSection:
     status_change: str | None
     captures: list[CaptureItem]
     archive_path: str | None
+    # Phase 1-C (v0.12.0): 2-3 sentence cross-capture narrative for this
+    # topic in the report's period. ``None`` means we haven't generated
+    # one (insufficient captures, no provider, or LLM call failed).
+    narrative: str | None = None
 
 
 def _capture_item_from_capture(capture: Capture) -> CaptureItem:
@@ -226,6 +230,132 @@ def _resolve_layout(cfg: RinConfig, sections: list[PoIReportSection]) -> str:
     return layout
 
 
+# Phase 1-C (v0.12.0) — per-POI narrative paragraphs.
+# Sections with this many captures qualify for an LLM-generated narrative.
+POI_NARRATIVE_MIN_CAPTURES = 3
+
+POI_NARRATIVE_PROMPT = (
+    "Write a single 2-3 sentence paragraph that tells the cross-capture "
+    "story of the topic \"{topic}\" during the {kind} report period "
+    "({period_start} → {period_end}). Reference capture IDs like cap-12 "
+    "when useful. Be factual; do not invent details that aren't in the "
+    "source material.\n\n"
+    "Captures (chronological):\n{material}\n"
+)
+
+
+def _build_narrative_prompt(
+    section: PoIReportSection, period: ReportPeriod
+) -> str:
+    material_lines: list[str] = []
+    for cap in section.captures:
+        material_lines.append(
+            f"- cap-{cap.id} @ "
+            f"{cap.started_at.strftime('%Y-%m-%d %H:%M')} — "
+            f"{(cap.summary or '(no summary)')[:500]}"
+        )
+    return POI_NARRATIVE_PROMPT.format(
+        topic=section.title,
+        kind=period.kind,
+        period_start=period.start.strftime("%Y-%m-%d %H:%M"),
+        period_end=period.end.strftime("%Y-%m-%d %H:%M"),
+        material="\n".join(material_lines) or "(none)",
+    )
+
+
+def _load_cached_narratives(
+    period: ReportPeriod,
+) -> tuple[int | None, dict[str, str]]:
+    """Fetch the existing Report row (if any) plus its cached narratives.
+
+    Returns ``(report_id, {bucket_id_str: narrative})``. The cache key is the
+    bucket id as a string so it round-trips through JSON safely.
+    """
+
+    import json as _json
+
+    with session() as s:
+        row = s.scalars(
+            select(Report).where(
+                Report.kind == period.kind,
+                Report.period_start == period.start,
+                Report.period_end == period.end,
+            )
+        ).first()
+        if row is None:
+            return None, {}
+        report_id = row.id
+        raw = row.poi_narratives_json
+    if not raw:
+        return report_id, {}
+    try:
+        data = _json.loads(raw)
+    except (ValueError, TypeError):
+        return report_id, {}
+    if not isinstance(data, dict):
+        return report_id, {}
+    return report_id, {str(k): str(v) for k, v in data.items() if v}
+
+
+def populate_poi_narratives(
+    period: ReportPeriod,
+    sections: list[PoIReportSection],
+    *,
+    provider: Provider | None,
+    min_captures: int = POI_NARRATIVE_MIN_CAPTURES,
+    cache: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Attach ``section.narrative`` for every section qualifying for one.
+
+    Returns the merged ``{bucket_id_str: narrative}`` cache (existing
+    cache entries preserved; new ones added) so the caller can persist
+    it on the Report row.
+    """
+
+    merged: dict[str, str] = dict(cache or {})
+    for section in sections:
+        bucket_key = str(section.bucket_id)
+        cached = merged.get(bucket_key)
+        if cached:
+            section.narrative = cached
+            continue
+        if provider is None or len(section.captures) < min_captures:
+            continue
+        prompt = _build_narrative_prompt(section, period)
+        try:
+            narrative = provider.analyze_text(
+                prompt,
+                system=(
+                    "You write a concise factual paragraph for an "
+                    "activity report. No fluff."
+                ),
+            )
+        except LLMError as exc:
+            log.warning(
+                f"POI narrative LLM call failed for bucket {section.bucket_id}: {exc}"
+            )
+            continue
+        narrative = (narrative or "").strip()
+        if not narrative:
+            continue
+        section.narrative = narrative
+        merged[bucket_key] = narrative
+    return merged
+
+
+def _persist_poi_narratives(report_id: int, narratives: dict[str, str]) -> None:
+    import json as _json
+
+    with session() as s:
+        row = s.get(Report, report_id)
+        if row is None:
+            return
+        if not narratives:
+            row.poi_narratives_json = None
+        else:
+            row.poi_narratives_json = _json.dumps(narratives, ensure_ascii=False)
+
+
 def generate_report(
     period: ReportPeriod,
     cfg: RinConfig,
@@ -251,6 +381,13 @@ def generate_report(
 
     if layout == "per_poi":
         uncategorized = list_uncategorized_captures_for_period(period)
+        _existing_report_id, cached_narratives = _load_cached_narratives(period)
+        narratives = populate_poi_narratives(
+            period,
+            poi_sections,
+            provider=provider,
+            cache=cached_narratives,
+        )
         body = _render_poi_grouped_body(
             period,
             items,
@@ -259,6 +396,7 @@ def generate_report(
             provider=provider,
         )
     else:
+        narratives = {}
         body = _render_body(period, items, provider=provider, cfg=cfg)
     out_dir = out_dir or reports_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -292,6 +430,9 @@ def generate_report(
             s.add(ReportText(report_id=report_id, body_text=body))
         else:
             report_text.body_text = body
+
+    if layout == "per_poi":
+        _persist_poi_narratives(report_id, narratives)
 
     _maybe_write_obsidian_copy(period, body, len(items), cfg)
     log.info(f"Generated {period.kind} report → {path}")
@@ -474,6 +615,9 @@ def _render_poi_grouped_offline_plain(
         if section.archive_path:
             lines.append(f"**Archive:** {section.archive_path}")
         lines.append("")
+        if section.narrative:
+            lines.append(section.narrative)
+            lines.append("")
         for capture in section.captures:
             lines.append(
                 f"- cap-{capture.id} @ {capture.started_at.isoformat()} — "
@@ -554,6 +698,8 @@ def _format_poi_material(
             lines.append(f"  Status: {section.status_change}")
         if section.archive_path:
             lines.append(f"  Archive: {section.archive_path}")
+        if section.narrative:
+            lines.append(f"  Narrative: {section.narrative}")
         lines.append("  Captures in period:")
         for capture in section.captures:
             lines.append(

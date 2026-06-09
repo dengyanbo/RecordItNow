@@ -132,6 +132,10 @@ class Report(Base):
     period_end: Mapped[datetime]
     kind: Mapped[str] = mapped_column(String(16))  # "daily" | "weekly" | "custom"
     markdown_path: Mapped[str] = mapped_column(Text)
+    # Phase 1-C (v0.12.0): cached per-POI narrative paragraphs so we
+    # don't re-call the LLM every time the report is rendered. JSON
+    # shape: {"bucket_id_or_key": "narrative paragraph", ...}.
+    poi_narratives_json: Mapped[str | None] = mapped_column(Text, default=None)
     created_at: Mapped[datetime] = mapped_column(default=func.now())
 
     text_entry: Mapped[ReportText | None] = relationship(back_populates="report", uselist=False)

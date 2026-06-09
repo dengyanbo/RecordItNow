@@ -67,6 +67,10 @@ POI_GROUPED_REPORT_TEMPLATE = """# RIN Report — {{ kind|title }}
 **Archive:** [{{ section.archive_path }}]({{ section.archive_path }})
 {% endif %}
 
+{% if section.narrative %}
+{{ section.narrative }}
+
+{% endif %}
 {% for cap in section.captures %}
 - `cap-{{ cap.id }}` @ {{ cap.started_at.strftime('%Y-%m-%d %H:%M') }}{% if cap.summary %} — {{ cap.summary }}{% endif %}
 {% endfor %}

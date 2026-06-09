@@ -397,7 +397,12 @@ def _push_to_index(
     text: str,
     embedder: Callable[[str], list[float]] | None,
 ) -> None:
-    """Best-effort push into ChromaDB. Failures are non-fatal."""
+    """Best-effort push into ChromaDB. Failures are non-fatal.
+
+    Phase 1-C (v0.12.0): metadata now carries ``bucket_keys`` (pipe-padded
+    string) and ``bucket_ids_csv`` so :func:`rin.rag.search.search` can
+    post-filter by tracked POIs.
+    """
 
     if embedder is None:
         return
@@ -406,13 +411,23 @@ def _push_to_index(
     except Exception as exc:
         log.warning(f"Embedding failed for capture {capture_id}: {exc}")
         return
+    meta: dict[str, str | int] = {"capture_id": capture_id}
+    try:
+        from ..rag.indexer import bucket_keys_for_capture, encode_bucket_keys
+
+        bucket_ids, bucket_keys = bucket_keys_for_capture(capture_id)
+        if bucket_ids:
+            meta["bucket_ids_csv"] = ",".join(str(i) for i in bucket_ids)
+            meta["bucket_keys"] = encode_bucket_keys(bucket_keys)
+    except Exception as exc:  # pragma: no cover - defensive
+        log.warning(f"bucket_keys lookup failed for capture {capture_id}: {exc}")
     try:
         vector_store.upsert(
             collection=vector_store.CAPTURES_COLLECTION,
             ids=[f"cap-{capture_id}"],
             documents=[text[:4000]],
             embeddings=[vec],
-            metadatas=[{"capture_id": capture_id}],
+            metadatas=[meta],
         )
     except Exception as exc:
         log.warning(f"Vector store upsert failed for capture {capture_id}: {exc}")

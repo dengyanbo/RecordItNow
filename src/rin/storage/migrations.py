@@ -91,6 +91,20 @@ def _add_analysis_structured_json(engine: Engine) -> None:
             conn.execute(text("ALTER TABLE analyses ADD COLUMN analysis_json TEXT"))
 
 
+def _add_report_poi_narratives_json(engine: Engine) -> None:
+    """Phase 1-C (v0.12.0): cached per-POI narrative paragraphs on reports."""
+
+    with engine.begin() as conn:
+        info = conn.exec_driver_sql("PRAGMA table_info(reports)").fetchall()
+        if not info:
+            return
+        columns = {row[1] for row in info}
+        if "poi_narratives_json" not in columns:
+            conn.execute(
+                text("ALTER TABLE reports ADD COLUMN poi_narratives_json TEXT")
+            )
+
+
 # (target_version, sql_or_fn). ``fn`` receives the Engine and runs inside its own transaction.
 MIGRATIONS: list[tuple[int, str | Callable[[Engine], None]]] = [
     # v0.5.0: skill-driven bucket categorization (see rin.skills).
@@ -147,6 +161,8 @@ MIGRATIONS: list[tuple[int, str | Callable[[Engine], None]]] = [
     ),
     # v0.11.0 (Phase 1-B): structured per-POI rollup column on analyses.
     (5, _add_analysis_structured_json),
+    # v0.12.0 (Phase 1-C): cached per-POI narrative paragraphs on reports.
+    (6, _add_report_poi_narratives_json),
 ]
 
 CURRENT_VERSION = max((m[0] for m in MIGRATIONS), default=0)

@@ -2,6 +2,68 @@
 
 All notable changes to RIN — Record It Now.
 
+## v0.12.0 — Bucket-aware RAG + per-POI narrative reports (Phase 1-C) (2026-06-09)
+
+Third of four POI-aware summarization releases. Pushes detected POI
+buckets into the vector store so the RAG agent can scope searches by
+topic, and adds a cached LLM-generated narrative paragraph per topic
+section in per_poi reports.
+
+### What changed
+- **Vector store metadata enrichment.** `rin.rag.indexer.index_capture`
+  and the summarizer's `_push_to_index` now attach `bucket_keys` (pipe-
+  padded string like `"|topic:Atlas|topic:Beacon|"`) and a
+  `bucket_ids_csv` companion to every Chroma upsert. Captures with zero
+  buckets emit neither field so existing readers stay untouched.
+- **POI-filtered search.** `rin.rag.search.search()` gains an optional
+  `pois: list[str] | None` kwarg. Bare names are treated as topic POIs
+  (`Atlas` → `topic:Atlas`); pass `skill:key` strings to target another
+  skill (e.g. `support_ticket:T-1`). Filtering happens in Python after
+  an inflated Chroma fetch (`k * 4`, capped at 50) because Chroma
+  metadata is scalar-only.
+- **Per-POI narrative paragraphs.** New `populate_poi_narratives()` runs
+  before per_poi rendering. For each section with ≥3 captures and a
+  reachable provider, it asks the LLM for a 2-3 sentence cross-capture
+  story and attaches it to the section. Sections below the threshold
+  or without a provider skip silently.
+- **Narrative caching.** Cached on `reports.poi_narratives_json`
+  (new column). Re-rendering the same report period reuses cached
+  paragraphs verbatim instead of re-calling the LLM.
+- **New CLI** `python -m rin reindex` re-upserts analyzed captures
+  through `index_pending()` so users upgrading from v0.11.x can
+  backfill the new metadata for old captures (search filters use
+  forward-compatible pipe-substring matching, so this is opt-in).
+- **Migration v6** adds `reports.poi_narratives_json` idempotently.
+
+### Tests
+- `tests/test_rag_indexer_bucket_metadata.py` (7 tests) — bucket key
+  encoding, capture→buckets lookup, indexer + summarizer both write
+  the new metadata, captures without buckets stay clean.
+- `tests/test_rag_search_poi_filter.py` (10 tests) — needle
+  normalization, partial-name disambiguation (`Atlas` ≠ `AtlasFrontend`),
+  k cap respected, candidate-set inflation keeps k populated.
+- `tests/test_reports_poi_narratives.py` (10 tests) — narrative gate
+  on ≥3 captures + provider, cache hit avoids LLM, LLMError handled,
+  narrative rendered in offline and end-to-end paths, JSON persisted.
+- Total: 457 passed (was 430).
+
+### Compatibility
+- Old vector-store rows survive: `pois` filter rejects them, but
+  unfiltered queries return them as before.
+- New `reports.poi_narratives_json` column is `NULL` for legacy reports
+  and ignored by readers that don't know about it.
+- `reindex` is opt-in; new captures pick up the metadata automatically.
+
+### Known limitations
+- Narrative generation adds one LLM call per qualifying section per
+  fresh report (cached on subsequent re-renders). With 5 active topics
+  and a 3-capture threshold, that's at most 5 extra calls per daily
+  report.
+- Chroma `where` clauses can't filter on substrings of a string field,
+  so POI filtering is post-query Python with an inflated fetch. For
+  very large vector stores this may pull more vectors than necessary;
+  scope this with `kind=` whenever possible.
+
 ## v0.11.0 — Structured per-POI rollup (Phase 1-B) (2026-06-09)
 
 Second of four POI-aware summarization releases. Adds a structured

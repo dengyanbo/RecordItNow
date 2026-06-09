@@ -69,6 +69,28 @@ def _cmd_poi_discover(args: argparse.Namespace) -> int:
         return 1
 
 
+def _cmd_reindex(args: argparse.Namespace) -> int:
+    """Re-index captures into the vector store (Phase 1-C, v0.12.0).
+
+    Existing entries are overwritten so the new ``bucket_keys`` metadata
+    introduced in v0.12.0 is populated for old captures and search's
+    ``pois=`` filter works retroactively.
+    """
+
+    try:
+        from .rag import index_pending
+        from .storage import init_db
+
+        init_db()
+        indexed = index_pending(limit=args.limit)
+        print(f"Re-indexed {len(indexed)} capture(s) into the vector store.")
+        return 0
+    except Exception as exc:
+        log.exception(f"reindex failed: {exc}")
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="rin", description="Record It Now")
     parser.add_argument(
@@ -96,10 +118,27 @@ def main(argv: list[str] | None = None) -> int:
     )
     disc.add_argument("--max", type=int, default=30, dest="max_candidates")
 
+    reix = subparsers.add_parser(
+        "reindex",
+        help=(
+            "Re-index captures into the vector store. Required once after "
+            "upgrading to v0.12.0 so search's --pois filter works for "
+            "captures embedded before the upgrade."
+        ),
+    )
+    reix.add_argument(
+        "--limit",
+        type=int,
+        default=1000,
+        help="Maximum number of captures to re-index in one run (default: 1000).",
+    )
+
     args = parser.parse_args(argv)
 
     if args.command == "poi-discover":
         return _cmd_poi_discover(args)
+    if args.command == "reindex":
+        return _cmd_reindex(args)
 
     # Single-instance gate: a second RIN tray would duplicate icons,
     # global hotkey listeners, and SQLite writers. Skipped under
