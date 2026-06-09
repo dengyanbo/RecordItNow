@@ -91,6 +91,58 @@ def _cmd_reindex(args: argparse.Namespace) -> int:
         return 1
 
 
+def _cmd_skill_scaffold(args: argparse.Namespace) -> int:
+    """Create a starter ``skill.py`` template (Phase 3-A, v0.17.0)."""
+
+    from pathlib import Path as _Path
+
+    from .skills.scaffold import scaffold_skill
+
+    try:
+        target_dir = _Path(args.dir).expanduser() if args.dir else None
+        path = scaffold_skill(
+            name=args.name,
+            display_name=args.display_name,
+            description=args.description or "",
+            version=args.version,
+            skills_dir=target_dir,
+            overwrite=args.force,
+        )
+        print(f"Created skill template at: {path}")
+        print(
+            "Next steps:\n"
+            f"  1. Edit {path}\n"
+            "  2. Run 'rin skill validate' on it to smoke-test\n"
+            "  3. Enable the skill in Settings → Skills (restart RIN first)"
+        )
+        return 0
+    except (ValueError, FileExistsError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        log.exception(f"skill scaffold failed: {exc}")
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+
+def _cmd_skill_validate(args: argparse.Namespace) -> int:
+    """Smoke-test a user skill (Phase 3-A, v0.17.0)."""
+
+    from pathlib import Path as _Path
+
+    from .skills.scaffold import _resolve_skill_path, validate_skill
+
+    try:
+        skill_py = _resolve_skill_path(_Path(args.path).expanduser())
+        report = validate_skill(skill_py)
+        print(report.format())
+        return 0 if report.passed else 1
+    except Exception as exc:
+        log.exception(f"skill validate failed: {exc}")
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="rin", description="Record It Now")
     parser.add_argument(
@@ -133,12 +185,59 @@ def main(argv: list[str] | None = None) -> int:
         help="Maximum number of captures to re-index in one run (default: 1000).",
     )
 
+    skill_p = subparsers.add_parser(
+        "skill",
+        help="Scaffold + validate user-installable skills (v0.17.0+).",
+    )
+    skill_sub = skill_p.add_subparsers(dest="skill_command")
+
+    sc = skill_sub.add_parser(
+        "scaffold",
+        help="Create a starter skill.py template under the user skills dir.",
+    )
+    sc.add_argument("name", help="Skill name (a-z, digits, underscore).")
+    sc.add_argument("--display-name", dest="display_name", default=None)
+    sc.add_argument("--description", default="")
+    sc.add_argument("--version", default="0.1.0")
+    sc.add_argument(
+        "--dir",
+        default=None,
+        help=(
+            "Override the user skills directory "
+            "(default: %%LOCALAPPDATA%%\\RIN\\skills on Windows)."
+        ),
+    )
+    sc.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite an existing skill.py at the target path.",
+    )
+
+    val = skill_sub.add_parser(
+        "validate",
+        help="Smoke-test a skill.py (load + detect/should_close/render_archive).",
+    )
+    val.add_argument(
+        "path",
+        help=(
+            "Path to a skill folder or its skill.py. Returns exit code 0 on "
+            "PASS, 1 on FAIL."
+        ),
+    )
+
     args = parser.parse_args(argv)
 
     if args.command == "poi-discover":
         return _cmd_poi_discover(args)
     if args.command == "reindex":
         return _cmd_reindex(args)
+    if args.command == "skill":
+        if args.skill_command == "scaffold":
+            return _cmd_skill_scaffold(args)
+        if args.skill_command == "validate":
+            return _cmd_skill_validate(args)
+        skill_p.print_help()
+        return 2
 
     # Single-instance gate: a second RIN tray would duplicate icons,
     # global hotkey listeners, and SQLite writers. Skipped under

@@ -2,6 +2,66 @@
 
 All notable changes to RIN — Record It Now.
 
+## v0.17.0 — Skill scaffold + validate CLI (Phase 3-A) (2026-06-09)
+
+First "skill authoring" release in Part 3. Zero new runtime behaviour
+— just dev ergonomics for the small fraction of users who outgrow the
+declarative `topic` skill and want to write their own. Lays the
+foundation for v0.18.0's "Convert PoI to skill" button.
+
+### What changed
+- **`rin skill scaffold <name>`** CLI command. Writes a curated
+  `skill.py` template under `<user-skills-dir>/<name>/` (default
+  `%LOCALAPPDATA%\RIN\skills\` on Windows). Validates that `<name>`
+  matches `[a-z][a-z0-9_]*` so the result is importable. Accepts
+  `--display-name`, `--description`, `--version`, `--dir`, `--force`
+  options.
+- **`rin skill validate <path>`** CLI command. Loads a `skill.py`
+  via the same `importlib.util.spec_from_file_location` plumbing the
+  registry uses, then runs the 7 most common authoring checks: file
+  exists, imports cleanly, exposes a module-level `SKILL`, that
+  `SKILL` is a `Skill` instance, metadata is non-empty, `Config` (if
+  present) is a valid Pydantic schema with valid defaults, `detect()`
+  returns `list[BucketRef]` on a synthetic context, `should_close()`
+  doesn't raise on empty + populated capture lists, and
+  `render_archive()` returns a string. Accepts either a folder or a
+  direct `skill.py` path. Exit code: 0 on PASS, 1 on FAIL.
+- **New `rin.skills.scaffold` module** (`scaffold_skill()`,
+  `validate_skill()`, `ValidationReport`, `ValidationCheck`). Pure
+  Python — no new dependencies. The scaffold template is a minimal
+  but runnable skill (keyword-match detect + inactivity-based
+  `should_close`) that passes `validate` immediately so users can
+  iterate from a known-good starting point.
+
+### Limits & safety
+- The scaffold writes only under the user-supplied / default skills
+  dir; no PATH modifications, no installs into site-packages, no
+  registry edits.
+- `validate` does NOT sandbox the skill — `exec_module()` runs the
+  user's code in-process. Treat unfamiliar skills like any other
+  Python you wouldn't run with `python file.py`.
+- The validator uses synthetic captures (1 capture, dummy text); a
+  passing skill is **import-safe** but may still misbehave on real
+  data. Users should always test against real captures via the
+  Skills tab's Enable toggle before relying on the bucket output.
+
+### Schema / migrations
+- No schema changes. No migrations. No backfill.
+
+### Tests
+- 20 new tests across `tests/test_skill_scaffold.py` and
+  `tests/test_cli_skill.py`. Covers scaffold name validation,
+  overwrite refusal, generated skill passes validator, every
+  validator failure mode (file missing, broken import, missing
+  `SKILL`, wrong type, `detect` returns non-list, `detect` raises,
+  empty metadata), CLI integration (exit codes + output). Suite now
+  at **562 passed** (was 542 in v0.16.0).
+
+### Upgrade
+- No action required. Existing skills continue to work unchanged.
+  Try the new CLI: `python -m rin skill scaffold my_first_skill`
+  then `python -m rin skill validate %LOCALAPPDATA%\RIN\skills\my_first_skill`.
+
 ## v0.16.0 — Conversational LLM intake + "Why didn't this match?" diagnostic (Phase 2-C) (2026-06-09)
 
 Third and final "POI authoring assist" release in Part 2. Closes the
