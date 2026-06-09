@@ -19,7 +19,7 @@ Closes #
 ## Validation
 
 - [ ] `ruff check src tests scripts` is clean
-- [ ] `pytest -q` is green (current baseline: **550/550**)
+- [ ] `pytest -q` is green (current baseline: **553/553**)
 - [ ] If UI-visible, a before/after screenshot is included below
 
 <!-- before / after screenshots here if relevant -->
@@ -27,7 +27,7 @@ Closes #
 ## Checklist
 
 - [ ] I read [CONTRIBUTING.md](../blob/main/.github/CONTRIBUTING.md)
-- [ ] My commit messages include `Co-authored-by: Copilot <223554919+Copilot@users.noreply.github.com>` when AI assistance was used
+- [ ] My commit messages include `Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>` when AI assistance was used
 - [ ] I did **not** introduce a GPL-licensed dependency (RIN ships MIT)
 - [ ] I did **not** add a hard requirement on bundled FFmpeg (we install it via `winget`)
 - [ ] If I touched `subprocess.run` / `Popen` with text output, I set `encoding="utf-8", errors="replace"`

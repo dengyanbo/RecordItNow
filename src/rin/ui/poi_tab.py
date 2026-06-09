@@ -1,6 +1,7 @@
 """Settings UI for the Topics & PoIs page."""
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 from dataclasses import dataclass
@@ -1003,6 +1004,27 @@ class TopicsAndPoIsTab(QWidget):
             return
 
         del self._in_memory_topics[index]
+        try:
+            self.commit_to_config()
+            self._config.save()
+        except OSError as exc:
+            self._in_memory_topics.insert(index, topic)
+            log.exception(f"convert_topic_to_skill: could not persist config: {exc}")
+            with contextlib.suppress(OSError):
+                path.unlink()
+                path.parent.rmdir()
+            QMessageBox.critical(
+                self,
+                "Conversion failed",
+                (
+                    f"Wrote {path} but could not update config: {exc}\n\n"
+                    "The generated skill file was removed and the PoI was "
+                    "restored. Please try again or check disk space / "
+                    "permissions."
+                ),
+            )
+            return
+
         self._reload_my_pois_table()
         self.pois_changed.emit()
         QMessageBox.information(

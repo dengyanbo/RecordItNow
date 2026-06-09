@@ -96,7 +96,25 @@ _ALIASES = {aliases}
 _CLOSED_PHRASES = {closed_phrases}
 _ARCHIVE_AFTER_DAYS = {topic.archive_after_days}
 
-_COMPILED_REGEX = [re.compile(p, re.IGNORECASE) for p in _REGEX]
+
+def _compile_safely(patterns: list[str]) -> list[re.Pattern[str]]:
+    """Compile each pattern; log + skip invalid ones (matches the source
+    ``topic`` engine, which tolerates bad regex by design)."""
+    import logging
+
+    log = logging.getLogger(__name__)
+    out: list[re.Pattern[str]] = []
+    for pattern in patterns:
+        if not pattern:
+            continue
+        try:
+            out.append(re.compile(pattern, re.IGNORECASE))
+        except re.error as exc:
+            log.warning(f"{{_NAME}}: skipping invalid regex {{pattern!r}}: {{exc}}")
+    return out
+
+
+_COMPILED_REGEX = _compile_safely(_REGEX)
 
 
 class {cls_name}(Skill):

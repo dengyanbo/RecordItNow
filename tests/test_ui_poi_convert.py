@@ -91,3 +91,87 @@ def test_convert_topic_cancelled_keeps_poi(
     # Still present; no skill file written.
     assert len(tab._in_memory_topics) == 1
     assert not (paths_mod.skills_dir() / "cancel_me" / "skill.py").exists()
+
+
+def test_convert_topic_persists_config_atomically(
+    qapp, rin_db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """v0.18.3 (M1): a successful Convert must write config.toml *immediately*
+    so the on-disk skill and the in-config PoI removal stay in sync. Before
+    the fix, the removal was deferred until the user clicked Save on the
+    Settings dialog — a Cancel would leave the user with both."""
+    import tomllib
+
+    from PySide6.QtWidgets import QMessageBox
+
+    from rin import paths as p
+
+    cfg = RinConfig()
+    tab = TopicsAndPoIsTab(cfg)
+    tab._in_memory_topics = [
+        TopicSpec(name="Persist Me", keywords=["pm"]),
+        TopicSpec(name="Keep Me", keywords=["km"]),
+    ]
+    tab._reload_my_pois_table()
+
+    monkeypatch.setattr(
+        QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Ok
+    )
+    monkeypatch.setattr(
+        QMessageBox, "information", lambda *a, **k: QMessageBox.StandardButton.Ok
+    )
+
+    tab._on_convert_topic(0)
+
+    # Skill file written.
+    assert (paths_mod.skills_dir() / "persist_me" / "skill.py").exists()
+
+    # config.toml on disk reflects the removal — load fresh and check.
+    config_path = p.config_path()
+    assert config_path.exists(), "config.toml should have been written"
+    data = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    topic_section = data.get("skills", {}).get("topic", {})
+    names_on_disk = [t.get("name") for t in topic_section.get("topics", [])]
+    assert "Persist Me" not in names_on_disk, (
+        f"Converted topic should be removed from config.toml; found: {names_on_disk}"
+    )
+    assert "Keep Me" in names_on_disk
+
+
+def test_convert_topic_rolls_back_on_save_failure(
+    qapp, rin_db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """v0.18.3 (M1): if config.save() fails after the file was written,
+    restore the PoI and delete the orphaned skill file so the user isn't
+    left with a half-applied state."""
+    from PySide6.QtWidgets import QMessageBox
+
+    cfg = RinConfig()
+    tab = TopicsAndPoIsTab(cfg)
+    tab._in_memory_topics = [TopicSpec(name="Doomed", keywords=["d"])]
+    tab._reload_my_pois_table()
+
+    monkeypatch.setattr(
+        QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Ok
+    )
+    critical_calls = []
+    monkeypatch.setattr(
+        QMessageBox,
+        "critical",
+        lambda *a, **k: (critical_calls.append((a, k)), QMessageBox.StandardButton.Ok)[1],
+    )
+
+    def _boom(*_a, **_k):
+        raise OSError("disk full (simulated)")
+
+    monkeypatch.setattr(RinConfig, "save", _boom)
+
+    tab._on_convert_topic(0)
+
+    # PoI was restored.
+    assert len(tab._in_memory_topics) == 1
+    assert tab._in_memory_topics[0].name == "Doomed"
+    # Orphan file was cleaned up.
+    assert not (paths_mod.skills_dir() / "doomed" / "skill.py").exists()
+    # User was told.
+    assert critical_calls, "QMessageBox.critical should have been called on rollback"

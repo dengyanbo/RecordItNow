@@ -2,6 +2,72 @@
 
 All notable changes to RIN — Record It Now.
 
+## v0.18.3 — Convert-PoI hardening + doc fixes (2026-06-09)
+
+Patch release. Fixes four issues surfaced by a full-codebase review of
+the v0.18.x window: two real bugs in the v0.18.0 *Convert PoI to Skill*
+flow, plus two doc-correctness fixes.
+
+### What changed
+
+- **Convert PoI to Skill now persists `config.toml` atomically.** Before
+  this fix `_on_convert_topic` wrote `skill.py` to disk **immediately**
+  but only removed the PoI from `cfg.skills_config('topic')` in memory.
+  If the user dismissed the Settings dialog (Cancel / [x]), the next
+  launch saw **both** the original PoI in `config.toml` **and** the new
+  on-disk skill — a footgun that surfaced as double-matching of the same
+  captures once the user enabled the new skill. The Convert flow now
+  calls `commit_to_config()` + `self._config.save()` immediately on
+  success, with rollback (PoI restored, orphan skill file deleted) if
+  the save fails — matching what the in-app confirmation copy and the
+  README already promised.
+  (`src/rin/ui/poi_tab.py:961-1042`)
+
+- **Generated skills tolerate malformed regex.** The skill template at
+  `src/rin/skills/from_topic.py:_REGEX → _COMPILED_REGEX` previously
+  compiled all patterns eagerly at module scope. The source `topic`
+  engine at `src/rin/skills/builtin/topic/skill.py:_compiled_patterns`
+  has always wrapped each `re.compile()` in `try/except`, logging a
+  warning and continuing — so a PoI with one bad regex still worked.
+  After conversion the user would get a skill that *refused to import*
+  on first load, silently breaking what had been a working PoI. The
+  generator now emits the same tolerant per-pattern compile helper so
+  semantics are preserved on conversion.
+  (`src/rin/skills/from_topic.py:74-103`)
+
+- **Documented Copilot co-author trailer GitHub user-ID corrected.**
+  `AGENTS.md`, `.github/CONTRIBUTING.md`, and
+  `.github/pull_request_template.md` all instructed contributors and
+  cloud agents to use `223554919+Copilot@…`, but every real commit in
+  this repo (39 to date) uses `223556219+Copilot@…` (one digit off).
+  Any tool that read the doc as ground truth was attributing commits to
+  a non-existent GitHub user. Docs now match the real ID.
+
+- **README "Suggested PoIs" button label fix.** The new v0.18.2 PoI
+  section said "Click **Promote** to turn one into a real PoI", but the
+  actual button in `src/rin/ui/poi_tab.py:785` is labelled `Accept`
+  (paired with `Reject`). README.md and README.zh-CN.md updated.
+
+### Schema / migrations
+- None.
+
+### Tests
+- Suite now at **553 passed** (was 550). Three new tests:
+  - `test_convert_topic_persists_config_atomically` — asserts
+    `config.toml` on disk reflects the PoI removal immediately after
+    Convert (regression for the M1 bug).
+  - `test_convert_topic_rolls_back_on_save_failure` — asserts the PoI is
+    restored and the orphan `skill.py` deleted when `cfg.save()` raises
+    `OSError` (regression for the M1 rollback path).
+  - `test_generated_skill_tolerates_bad_regex` — asserts a converted
+    skill with one bad + one good regex still imports and matches on the
+    good pattern (regression for the M2 bug).
+
+### Upgrade
+- No action required. Existing converted skills are unaffected. If you
+  hit the M1 footgun (a `topic` PoI lingering in config after Convert),
+  re-run Convert in v0.18.3 — config will be cleaned up automatically.
+
 ## v0.18.2 — CLI cp1252 hotfix (2026-06-09)
 
 Patch release. Fixes a Windows console encoding crash discovered during

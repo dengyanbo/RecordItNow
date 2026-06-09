@@ -2,7 +2,7 @@
 
 > **Languages:** [English](README.md) · **中文** · **开发或贡献？** 见 [`docs/DEVELOPING.md`](docs/DEVELOPING.md)
 
-[![tests](https://img.shields.io/badge/tests-550%20%2F%20550-brightgreen)](docs/DEVELOPING.md#testing)
+[![tests](https://img.shields.io/badge/tests-553%20%2F%20553-brightgreen)](docs/DEVELOPING.md#testing)
 [![python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)](#要求)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D4)](#要求)
@@ -121,7 +121,7 @@ PoI 是 RIN 用来归类截图的话题（一个项目、一个客户、一个 i
 
 | 工具 | 位置 | 作用 |
 | --- | --- | --- |
-| **Suggested PoIs 推荐表** | *Topics & PoIs* 顶部卡片 | 把你最近反复出现却还没建 PoI 的关键词 / ID / 域名挑出来。点 **Promote** 一键转成正式 PoI。 |
+| **Suggested PoIs 推荐表** | *Topics & PoIs* 顶部卡片 | 把你最近反复出现却还没建 PoI 的关键词 / ID / 域名挑出来。点 **Accept** 一键转成正式 PoI（或 **Reject** 忽略）。 |
 | **Active-PoI 衰减 + 噪音过滤** | 后台自动运行 | 最近 N 天没命中的 PoI 自动降级到"休眠"，让推荐列表只剩下你正在用的，不被旧 PoI 噪音淹没。 |
 
 ### 2. 半引导型 — 几下点击，RIN 帮你写
@@ -152,7 +152,7 @@ PoI 不是单纯的标签——它驱动整条分析和搜索管线：
 - **报告**里每个活跃 PoI 单独成段，而不是混在一坨摘要里。
 - **🔎 Search & Ask** 把 PoI 桶当作一等过滤器：问 *"上周关于 INC0012345 我做了什么？"* RAG agent 按时序拼出叙事，而非散点 chunk。
 
-**建议上手顺序：** 打开 Suggested PoIs 表 → Promote 一两个 → 想要更体系化的覆盖就选一个 Persona pack → 用 Live Preview 调参 → 某个 PoI 没起作用时先点 *Diagnose…*，调不动再 *Convert to Skill* 让代码接管。
+**建议上手顺序：** 打开 Suggested PoIs 表 → 点 *Accept* 接受一两个 → 想要更体系化的覆盖就选一个 Persona pack → 用 Live Preview 调参 → 某个 PoI 没起作用时先点 *Diagnose…*，调不动再 *Convert to Skill* 让代码接管。
 
 ---
 
@@ -203,7 +203,7 @@ PoI 不是单纯的标签——它驱动整条分析和搜索管线：
 ## 项目状态
 
 - 当前版本：**v0.9.1**（2026-06-09 发布）
-- **550 / 550 pytest 通过** · ruff 清洁
+- **553 / 553 pytest 通过** · ruff 清洁
 - CI 在 Windows + Python 3.11 / 3.12 上绿
 - 完整发布历史：[`docs/CHANGELOG.md`](docs/CHANGELOG.md)
 - 想贡献或扩展？读 [`docs/DEVELOPING.md`](docs/DEVELOPING.md)

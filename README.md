@@ -2,7 +2,7 @@
 
 > **Languages:** **English** · [中文](README.zh-CN.md) · **Building or contributing?** see [`docs/DEVELOPING.md`](docs/DEVELOPING.md)
 
-[![tests](https://img.shields.io/badge/tests-550%20%2F%20550-brightgreen)](docs/DEVELOPING.md#testing)
+[![tests](https://img.shields.io/badge/tests-553%20%2F%20553-brightgreen)](docs/DEVELOPING.md#testing)
 [![python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)](#requirements)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D4)](#requirements)
@@ -124,7 +124,7 @@ help, in *Settings → Topics & PoIs* unless noted.
 
 | Tool | Where | What it does |
 | --- | --- | --- |
-| **Suggested PoIs** table | Top of *Topics & PoIs* tab | Surfaces keywords / IDs / domains that keep recurring in your captures but aren't tracked yet. Click **Promote** to turn one into a real PoI. |
+| **Suggested PoIs** table | Top of *Topics & PoIs* tab | Surfaces keywords / IDs / domains that keep recurring in your captures but aren't tracked yet. Click **Accept** to turn one into a real PoI (or **Reject** to dismiss it). |
 | **Active-PoI decay + noise filter** | Background, automatic | PoIs that haven't matched in *N* days get demoted to "dormant" so the suggestion table stays focused on what you're actually working on now. |
 
 ### 2. Guided — a few clicks, RIN drafts the PoI
@@ -159,9 +159,9 @@ PoIs aren't just labels — they drive the analysis and search pipeline:
   *"what did I do for INC0012345 last week?"* and the RAG agent
   retrieves and stitches the answer in temporal order.
 
-**Suggested first run:** open the Suggested PoIs table → promote one or
-two → if you want more structure, pick a persona pack → tune with the
-live regex preview → if a PoI underperforms, click *Diagnose…* before
+**Suggested first run:** open the Suggested PoIs table → click *Accept* on
+one or two → if you want more structure, pick a persona pack → tune with
+the live regex preview → if a PoI underperforms, click *Diagnose…* before
 reaching for *Convert to Skill*.
 
 ---
@@ -213,7 +213,7 @@ Want sequence diagrams + per-module rationale? See
 ## Project status
 
 - Current: **v0.9.1** (released 2026-06-09)
-- **550 / 550 pytest** pass · ruff clean
+- **553 / 553 pytest** pass · ruff clean
 - CI green on Python 3.11 + 3.12 on `windows-latest`
 - Full release history: [`docs/CHANGELOG.md`](docs/CHANGELOG.md)
 - Want to contribute or extend? Read [`docs/DEVELOPING.md`](docs/DEVELOPING.md)

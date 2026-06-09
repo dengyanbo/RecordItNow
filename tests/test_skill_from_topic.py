@@ -155,3 +155,26 @@ def test_generated_skill_should_close(tmp_path: Path) -> None:
         None, [_cap(now - timedelta(days=1), "nothing closed")], now
     ) is False
 
+
+def test_generated_skill_tolerates_bad_regex(tmp_path: Path) -> None:
+    """v0.18.3: a malformed regex in the source PoI should NOT make the
+    generated module fail to import — it should be logged + skipped, so
+    the remaining patterns keep firing (matches the source ``topic``
+    engine's behavior at builtin/topic/skill.py:_compiled_patterns)."""
+    topic = TopicSpec(
+        name="Mixed Patterns",
+        regex=["TKT-\\d+", "[unterminated"],  # 2nd is invalid
+        keywords=[],
+    )
+    path = convert_topic_to_skill(topic, skills_dir=tmp_path)
+
+    mod = _load(path, "gen_mixed")
+
+    # Module loaded despite the bad regex, and the good one is compiled.
+    assert len(mod._COMPILED_REGEX) == 1
+    assert mod._COMPILED_REGEX[0].pattern == "TKT-\\d+"
+
+    # The good pattern still fires on a matching capture.
+    result = mod.SKILL.detect(_ctx("See TKT-99 today", source="ocr"))
+    assert len(result) == 1 and result[0].key == "mixed_patterns"
+
