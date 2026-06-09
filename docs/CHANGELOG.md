@@ -2,6 +2,58 @@
 
 All notable changes to RIN — Record It Now.
 
+## v0.11.0 — Structured per-POI rollup (Phase 1-B) (2026-06-09)
+
+Second of four POI-aware summarization releases. Adds a structured
+per-POI block to each capture's analysis so reports / RAG can render
+topic-specific narratives instead of extracting topics out of a
+paragraph.
+
+### What changed
+- **New column** `analyses.analysis_json` (additive). Schema:
+  ```json
+  {
+    "schema_version": 1,
+    "general_summary": "2-4 sentence paragraph (mirrors analyses.summary)",
+    "poi_blocks": [
+      {"poi": "Atlas", "block": "1-2 sentences about Atlas in this capture"}
+    ]
+  }
+  ```
+  `analyses.entities_json` stays as a deprecated alias; nothing reads it.
+- **New `build_structured_summary()`** asks the LLM for the JSON object
+  in one call. Falls back to plain `build_summary` (Phase 1-A behavior)
+  on: no provider, no detected POIs, parse failure, or `max_blocks <= 0`.
+- **New config** `cfg.analysis.max_poi_blocks_per_capture = 2`. Caps how
+  many per-POI blocks the structured ask will request, bounding LLM cost
+  when a single capture touches many topics.
+- **Reports** automatically substitute the per-POI block for the general
+  summary inside each topic section (per_poi layout). Falls back to
+  general summary when a block is missing (handles old captures, partial
+  responses, and disabled-block configs).
+- **Migration v5** adds `analyses.analysis_json` idempotently. Skips
+  silently if the table doesn't exist yet (covers test fixtures that
+  predate `Base.metadata.create_all`).
+
+### Tests
+- `tests/test_analysis_structured.py` (10 tests) — JSON parse, schema,
+  fence stripping, prompt cap behavior.
+- `tests/test_structured_summary_pipeline.py` (9 tests) — provider
+  flow: structured ask, JSON parse, fallback to plain on failure,
+  cap honored, persistence into `analyses.analysis_json`.
+- `tests/test_reports_per_poi_block_render.py` (3 tests) — section
+  shows per-POI block; falls back to general summary when missing;
+  end-to-end markdown contains the block text.
+- Total: 430 passed (was 408).
+
+### Compatibility
+- Zero break for existing captures: `analysis_json` column added but
+  reads tolerate `NULL` (defaults to `StructuredAnalysis()` with empty
+  poi_blocks → renderer falls back to general summary).
+- No backfill required.
+- `cfg.analysis.max_poi_blocks_per_capture` defaults to 2; set to 0 to
+  disable the JSON ask and keep Phase 1-A plain-prompt behavior.
+
 ## v0.10.0 — POI-aware summaries (Phase 1-A) (2026-06-09)
 
 First of four releases that turn the POI system from a flat list into a

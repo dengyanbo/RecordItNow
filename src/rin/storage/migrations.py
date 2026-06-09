@@ -77,6 +77,20 @@ def _migrate_reports_fts(engine: Engine) -> None:
         conn.exec_driver_sql("INSERT INTO reports_fts(reports_fts) VALUES ('rebuild')")
 
 
+def _add_analysis_structured_json(engine: Engine) -> None:
+    with engine.begin() as conn:
+        # The ``analyses`` table may not exist yet when we run against a
+        # bare fixture engine that hasn't yet called ``Base.metadata.
+        # create_all``. In that case there is nothing to alter and the
+        # subsequent create_all() will produce the column from the model.
+        info = conn.exec_driver_sql("PRAGMA table_info(analyses)").fetchall()
+        if not info:
+            return
+        columns = {row[1] for row in info}
+        if "analysis_json" not in columns:
+            conn.execute(text("ALTER TABLE analyses ADD COLUMN analysis_json TEXT"))
+
+
 # (target_version, sql_or_fn). ``fn`` receives the Engine and runs inside its own transaction.
 MIGRATIONS: list[tuple[int, str | Callable[[Engine], None]]] = [
     # v0.5.0: skill-driven bucket categorization (see rin.skills).
@@ -131,6 +145,8 @@ MIGRATIONS: list[tuple[int, str | Callable[[Engine], None]]] = [
         CREATE INDEX IF NOT EXISTS ix_poi_candidates_suggested_at   ON poi_candidates (suggested_at);
         """,
     ),
+    # v0.11.0 (Phase 1-B): structured per-POI rollup column on analyses.
+    (5, _add_analysis_structured_json),
 ]
 
 CURRENT_VERSION = max((m[0] for m in MIGRATIONS), default=0)

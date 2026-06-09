@@ -9,6 +9,7 @@ from typing import Literal
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from ..analysis import structured as structured_summary
 from ..config import RinConfig
 from ..llm import make_provider
 from ..llm.base import LLMError, Provider, ProviderUnavailable
@@ -52,6 +53,11 @@ class CaptureItem:
     duration_ms: int | None
     monitor_count: int
     summary: str | None = None
+    # Phase 1-B (v0.11.0): per-POI block text keyed by lowercased POI name.
+    # Populated from ``analyses.analysis_json``. Used by the per-POI report
+    # layout to substitute the topic-specific block for the general summary
+    # inside its section. Empty dict for old analyses or chronological view.
+    poi_blocks: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -66,14 +72,34 @@ class PoIReportSection:
 
 
 def _capture_item_from_capture(capture: Capture) -> CaptureItem:
+    latest = capture.analyses[-1] if capture.analyses else None
+    summary = latest.summary if latest else None
+    blocks: dict[str, str] = {}
+    if latest is not None:
+        parsed = structured_summary.parse(latest.analysis_json)
+        for b in parsed.poi_blocks:
+            blocks[b.poi.strip().lower()] = b.block
     return CaptureItem(
         id=capture.id,
         kind=capture.kind,
         started_at=capture.started_at,
         duration_ms=capture.duration_ms,
         monitor_count=len(capture.files),
-        summary=(capture.analyses[-1].summary if capture.analyses else None),
+        summary=summary,
+        poi_blocks=blocks,
     )
+
+
+def _capture_item_for_section(capture: Capture, section_title: str) -> CaptureItem:
+    """Like :func:`_capture_item_from_capture` but substitutes the POI-
+    specific block for ``summary`` when available, so templates can render
+    the topic-specific narrative inside each section without changes."""
+
+    item = _capture_item_from_capture(capture)
+    block = item.poi_blocks.get(section_title.strip().lower())
+    if block:
+        item.summary = block
+    return item
 
 
 @dataclass
@@ -169,7 +195,7 @@ def list_poi_sections_for_period(period: ReportPeriod) -> list[PoIReportSection]
             )
             sections_by_bucket[bucket.id] = section
             ordered_bucket_ids.append(bucket.id)
-        section.captures.append(_capture_item_from_capture(capture))
+        section.captures.append(_capture_item_for_section(capture, bucket.title))
 
     return [sections_by_bucket[bucket_id] for bucket_id in ordered_bucket_ids]
 

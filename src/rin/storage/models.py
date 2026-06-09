@@ -94,6 +94,13 @@ class Analysis(Base):
     summary: Mapped[str | None] = mapped_column(Text, default=None)
     ocr_text: Mapped[str | None] = mapped_column(Text, default=None)
     entities_json: Mapped[str | None] = mapped_column(Text, default=None)
+    # Phase 1-B (v0.11.0): structured per-POI rollup. JSON shape:
+    #   {"schema_version": 1,
+    #    "general_summary": str,
+    #    "poi_blocks": [{"poi": str, "block": str}, ...]}
+    # ``summary`` is kept as the canonical free-text duplicate so old
+    # readers still work. ``entities_json`` stays for backwards compat.
+    analysis_json: Mapped[str | None] = mapped_column(Text, default=None)
     llm_provider: Mapped[str | None] = mapped_column(String(32), default=None)
     llm_model: Mapped[str | None] = mapped_column(String(128), default=None)
     created_at: Mapped[datetime] = mapped_column(default=func.now(), index=True)

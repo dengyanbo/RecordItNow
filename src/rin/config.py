@@ -57,6 +57,11 @@ class AnalysisConfig(BaseModel):
     keyframe_interval_seconds: int = 5
     ocr_languages: list[str] = Field(default_factory=lambda: ["en", "ch_sim"])
     whisper_model: Literal["tiny", "base", "small", "medium", "large-v3"] = "small"
+    # Phase 1-B (v0.11.0): cap how many per-POI blocks the structured
+    # summary call may request in one prompt. Bounds LLM cost when a
+    # single capture touches many topics; remaining POIs are still
+    # mentioned in the general summary line.
+    max_poi_blocks_per_capture: int = 2
 
 
 class TelemetryConfig(BaseModel):

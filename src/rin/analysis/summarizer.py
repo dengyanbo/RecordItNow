@@ -37,7 +37,9 @@ from ..storage import session, vector_store
 from ..storage.models import Analysis, Bucket, Capture, CaptureBucket
 from ..storage.models import Transcript as TranscriptModel
 from ..utils.logging import get_logger
+from . import structured
 from .image_analyzer import analyze_image
+from .structured import StructuredAnalysis
 from .transcribe import Transcript
 from .video_analyzer import VideoAnalysis, analyze_video
 
@@ -66,19 +68,7 @@ def build_summary(
 
     image_analyses = image_analyses or []
     video_analyses = video_analyses or []
-    text_chunks: list[str] = []
-    for ia in image_analyses:
-        if ia.summary:
-            text_chunks.append(f"- {ia.summary}")
-    for va in video_analyses:
-        for s in va.frame_summaries:
-            text_chunks.append(f"  • {s}")
-        if va.transcript.text:
-            # Truncated to 1000 chars to bound LLM input cost. classify_capture()
-            # below receives the FULL transcript so PoI skills still see everything.
-            text_chunks.append(f"Transcript: {va.transcript.text[:1000]}")
-        if va.ocr_text:
-            text_chunks.append(f"OCR: {va.ocr_text[:500]}")
+    text_chunks = _collect_text_chunks(image_analyses, video_analyses)
 
     if not text_chunks:
         return f"{capture.kind.capitalize()} captured with no extractable text."
@@ -108,6 +98,112 @@ def build_summary(
     except (LLMError, ProviderUnavailable) as exc:
         log.warning(f"Summary LLM call failed: {exc}")
         return _fallback_summary(capture, joined)
+
+
+def build_structured_summary(
+    capture: Capture,
+    *,
+    image_analyses: list[ImageAnalysis] | None = None,
+    video_analyses: list[VideoAnalysis] | None = None,
+    provider: Provider | None = None,
+    detected_pois: list[str] | None = None,
+    fallback_pois: list[str] | None = None,
+    max_poi_blocks: int = 2,
+) -> StructuredAnalysis:
+    """Phase 1-B: produce general summary + per-POI blocks in one LLM call.
+
+    Falls back to ``StructuredAnalysis(general_summary=build_summary(...,
+    active_pois=fallback_pois))`` when:
+      * no provider is available,
+      * the user didn't trip any tracked POIs (no point asking for blocks),
+      * the LLM response failed to parse as JSON,
+      * ``max_poi_blocks <= 0`` (disabled).
+
+    ``fallback_pois`` is the Phase 1-A list passed to the plain summary
+    prompt when we skip the structured ask (typically the recent-history
+    fallback or just the detected list itself).
+
+    The structured payload is intended to be persisted in
+    ``Analysis.analysis_json``; ``StructuredAnalysis.general_summary``
+    is also written into ``Analysis.summary`` so old readers still work.
+    """
+
+    detected_pois = [p for p in (detected_pois or []) if p and p.strip()]
+    fallback_pois = fallback_pois if fallback_pois is not None else detected_pois
+    image_analyses = image_analyses or []
+    video_analyses = video_analyses or []
+    text_chunks = _collect_text_chunks(image_analyses, video_analyses)
+    if not text_chunks:
+        general = f"{capture.kind.capitalize()} captured with no extractable text."
+        return StructuredAnalysis(general_summary=general)
+
+    joined = "\n".join(text_chunks)
+
+    # No provider OR no detected POIs OR caller disabled blocks → fall
+    # back to plain summary. The general_summary stays in the structured
+    # payload so all consumers can read it the same way.
+    if provider is None or not detected_pois or max_poi_blocks <= 0:
+        general = build_summary(
+            capture,
+            image_analyses=image_analyses,
+            video_analyses=video_analyses,
+            provider=provider,
+            active_pois=fallback_pois,
+        )
+        return StructuredAnalysis(general_summary=general)
+
+    prompt = structured.build_prompt(
+        detected_pois=detected_pois,
+        max_blocks=max_poi_blocks,
+        material=joined,
+    )
+    try:
+        reply = provider.analyze_text(
+            prompt,
+            system=(
+                "You produce strict JSON. Reply with ONLY a single JSON object "
+                "matching the requested schema."
+            ),
+        )
+    except (LLMError, ProviderUnavailable) as exc:
+        log.warning(f"Structured summary LLM call failed: {exc}")
+        general = build_summary(
+            capture,
+            image_analyses=image_analyses,
+            video_analyses=video_analyses,
+            provider=provider,
+            active_pois=fallback_pois,
+        )
+        return StructuredAnalysis(general_summary=general)
+
+    parsed = structured.parse_llm_response(reply)
+    if not parsed.general_summary:
+        # The LLM ignored the schema and returned prose; treat the whole
+        # response as the general summary.
+        log.info(
+            "Structured summary: LLM reply was not JSON; using raw text as "
+            "general_summary fallback"
+        )
+        return StructuredAnalysis(general_summary=reply.strip())
+    return parsed
+
+
+def _collect_text_chunks(
+    image_analyses: list[ImageAnalysis],
+    video_analyses: list[VideoAnalysis],
+) -> list[str]:
+    text_chunks: list[str] = []
+    for ia in image_analyses:
+        if ia.summary:
+            text_chunks.append(f"- {ia.summary}")
+    for va in video_analyses:
+        for s in va.frame_summaries:
+            text_chunks.append(f"  • {s}")
+        if va.transcript.text:
+            text_chunks.append(f"Transcript: {va.transcript.text[:1000]}")
+        if va.ocr_text:
+            text_chunks.append(f"OCR: {va.ocr_text[:500]}")
+    return text_chunks
 
 
 def _fallback_summary(capture: Capture, joined: str) -> str:
@@ -186,18 +282,27 @@ def analyze_capture(
         cap = s.get(Capture, capture_id)
         if cap is None:
             return None
-        summary = build_summary(
+        # Phase 1-B: ask for a structured payload when we have detected
+        # POIs + a provider. Falls back to plain summary otherwise.
+        max_blocks = max(0, int(getattr(cfg.analysis, "max_poi_blocks_per_capture", 2)))
+        structured_payload = build_structured_summary(
             cap,
             image_analyses=image_analyses,
             video_analyses=video_analyses,
             provider=provider,
-            active_pois=active_pois,
+            detected_pois=detected_pois,
+            fallback_pois=active_pois,
+            max_poi_blocks=max_blocks,
+        )
+        summary = structured_payload.general_summary or _fallback_summary(
+            cap, "\n".join(_collect_text_chunks(image_analyses, video_analyses))
         )
         analysis = Analysis(
             capture_id=capture_id,
             summary=summary,
             ocr_text=all_ocr or None,
             entities_json=json.dumps({}),
+            analysis_json=structured_payload.to_json(),
             llm_provider=provider.name if provider else None,
             llm_model=getattr(provider, "model", None) if provider else None,
         )
