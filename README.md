@@ -113,6 +113,59 @@ Your captures, database, logs and downloaded models live in
 
 ---
 
+## Finding & creating Points of Interest (PoIs)
+
+PoIs are the topics RIN groups your captures by (a project, a customer,
+an incident, a person — anything you'd want a report section for).
+You don't have to write them by hand — RIN now offers four layers of
+help, in *Settings → Topics & PoIs* unless noted.
+
+### 1. Passive — RIN watches for you
+
+| Tool | Where | What it does |
+| --- | --- | --- |
+| **Suggested PoIs** table | Top of *Topics & PoIs* tab | Surfaces keywords / IDs / domains that keep recurring in your captures but aren't tracked yet. Click **Promote** to turn one into a real PoI. |
+| **Active-PoI decay + noise filter** | Background, automatic | PoIs that haven't matched in *N* days get demoted to "dormant" so the suggestion table stays focused on what you're actually working on now. |
+
+### 2. Guided — a few clicks, RIN drafts the PoI
+
+| Tool | Where | What it does |
+| --- | --- | --- |
+| **Create PoI from capture…** | Button on *Topics & PoIs* tab | Pick a recent capture → RIN extracts candidate regex / phrases / domain signals from its OCR text and **pre-fills the PoI editor**. You usually just rename and save. |
+| **Persona starter packs** | Dropdown at the top of the PoI wizard | One-click templates for `Software Engineer`, `Customer Success`, `Researcher / Student`, `Engineering Manager / Lead`. Skips the blank-page paralysis. |
+| **Live regex preview** | Right pane of the PoI editor | While you type a regex / phrase, RIN runs it against your recent captures **as you type** and shows hit counts + evidence snippets. Syntax errors and zero-hit patterns are flagged immediately. |
+| **💬 Chat intake (LLM)** | Button in PoI wizard (requires an LLM provider) | Describe the PoI in plain language ("track every Incident ticket I touch"); the LLM proposes regex / phrases / domains and fills the editor for you. |
+| **Diagnose…** | Per-row button in the My PoIs table | Tells you *why* a PoI isn't matching, *which captures* it did match, and suggests fixes. |
+
+### 3. Expert — write code when declarative isn't enough
+
+| Tool | Where | What it does |
+| --- | --- | --- |
+| `rin skill scaffold <name>` | Command line | Generates a complete `skill.py` template (with `Config`, `detect()`, metadata) under `%LOCALAPPDATA%\RIN\skills\<name>\`. |
+| `rin skill validate <path>` | Command line | Pre-flights your skill without booting RIN: checks the `SKILL` instance, `Config` validity, `detect()` signature, name collisions. Reports ✓ / ✗ per check. |
+| **Convert PoI to Skill** | *Convert…* column in the My PoIs table | Promotes a mature declarative PoI into a hand-written `skill.py` so you can add Python logic (API calls, NLP, DB lookups). The original PoI is removed from `[skills.topic]` automatically. |
+
+> See [`docs/skills.md`](docs/skills.md) for the full Skill plugin recipe.
+
+### Where the PoIs show up
+
+PoIs aren't just labels — they drive the analysis and search pipeline:
+
+- **Pre-classification** runs *before* summarization so captures matching
+  a PoI aren't washed out by the general daily roll-up.
+- **Reports** dedicate a structured section to each active PoI rather
+  than mixing everything into one paragraph.
+- **🔎 Search & Ask** uses PoI buckets as first-class filters; ask
+  *"what did I do for INC0012345 last week?"* and the RAG agent
+  retrieves and stitches the answer in temporal order.
+
+**Suggested first run:** open the Suggested PoIs table → promote one or
+two → if you want more structure, pick a persona pack → tune with the
+live regex preview → if a PoI underperforms, click *Diagnose…* before
+reaching for *Convert to Skill*.
+
+---
+
 ## How it works
 
 ```

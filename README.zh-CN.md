@@ -112,6 +112,50 @@
 
 ---
 
+## 发掘与创建关注点（PoIs）
+
+PoI 是 RIN 用来归类截图的话题（一个项目、一个客户、一个 incident、一个人——任何你想让报告单独成段的对象）。
+你不需要手写，RIN 现在提供**四层帮助**，下表入口除特别注明外都在 *Settings → Topics & PoIs*。
+
+### 1. 被动型 — RIN 自己帮你看
+
+| 工具 | 位置 | 作用 |
+| --- | --- | --- |
+| **Suggested PoIs 推荐表** | *Topics & PoIs* 顶部卡片 | 把你最近反复出现却还没建 PoI 的关键词 / ID / 域名挑出来。点 **Promote** 一键转成正式 PoI。 |
+| **Active-PoI 衰减 + 噪音过滤** | 后台自动运行 | 最近 N 天没命中的 PoI 自动降级到"休眠"，让推荐列表只剩下你正在用的，不被旧 PoI 噪音淹没。 |
+
+### 2. 半引导型 — 几下点击，RIN 帮你写
+
+| 工具 | 位置 | 作用 |
+| --- | --- | --- |
+| **Create PoI from capture…** | *Topics & PoIs* 顶部按钮 | 从最近 capture 里选一张 → RIN 从 OCR 文本里抽出候选 regex / 短语 / 域名信号，**预填 PoI 编辑器**。你通常只需改名保存。 |
+| **Persona starter packs** | PoI 向导顶部下拉框 | 预设角色一键导入：`Software Engineer`、`Customer Success`、`Researcher / Student`、`Engineering Manager / Lead`。免空白起步焦虑。 |
+| **Live Regex 实时预览** | PoI 编辑器右侧面板 | 你边敲 regex / 短语，RIN 边在你最近的真实 capture 上跑匹配，**逐字符显示命中数和证据片段**。语法错或零命中立刻报警。 |
+| **💬 Chat 自然语言录入（LLM）** | PoI 向导里的按钮（需启用 LLM 后端） | 用大白话描述 PoI（"追踪所有跟 Incident 工单相关的活动"），LLM 把它转成 regex / 短语 / 域名字段并填进编辑器。 |
+| **Diagnose…** | My PoIs 表每行按钮 | 告诉你这个 PoI **为什么没命中**、**命中了哪些 capture**、并给出修改建议。 |
+
+### 3. 进阶型 — 声明式不够用时写代码扩展
+
+| 工具 | 位置 | 作用 |
+| --- | --- | --- |
+| `rin skill scaffold <name>` | 命令行 | 在 `%LOCALAPPDATA%\RIN\skills\<name>\` 下生成完整 `skill.py` 模板（含 `Config`、`detect()`、metadata）。 |
+| `rin skill validate <path>` | 命令行 | 不启动 RIN 即可预检 skill：检查 `SKILL` 实例、`Config` 合法性、`detect()` 签名、命名冲突，逐项报告 ✓ / ✗。 |
+| **Convert PoI to Skill** | My PoIs 表的 *Convert…* 列 | 把已"养熟"的声明式 PoI 一键转成手写 `skill.py`，之后可以加 Python 逻辑（调 API、做 NLP、查数据库）。原 PoI 自动从 `[skills.topic]` 移除。 |
+
+> 完整的 Skill 插件配方见 [`docs/skills.md`](docs/skills.md)。
+
+### PoI 在哪里发挥作用
+
+PoI 不是单纯的标签——它驱动整条分析和搜索管线：
+
+- **预归类**在总结之前先跑：命中 PoI 的 capture 不会被通用日报稀释。
+- **报告**里每个活跃 PoI 单独成段，而不是混在一坨摘要里。
+- **🔎 Search & Ask** 把 PoI 桶当作一等过滤器：问 *"上周关于 INC0012345 我做了什么？"* RAG agent 按时序拼出叙事，而非散点 chunk。
+
+**建议上手顺序：** 打开 Suggested PoIs 表 → Promote 一两个 → 想要更体系化的覆盖就选一个 Persona pack → 用 Live Preview 调参 → 某个 PoI 没起作用时先点 *Diagnose…*，调不动再 *Convert to Skill* 让代码接管。
+
+---
+
 ## 工作原理
 
 ```
