@@ -11,6 +11,7 @@ import subprocess
 from pathlib import Path
 
 from ..utils.logging import get_logger
+from ..utils.proc import no_window_kwargs
 
 log = get_logger(__name__)
 
@@ -62,6 +63,7 @@ def extract_keyframes(
             encoding="utf-8",
             errors="replace",
             check=False,
+            **no_window_kwargs(),
         )
     except FileNotFoundError as exc:
         log.warning(f"ffmpeg not found: {exc}")

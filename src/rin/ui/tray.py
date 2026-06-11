@@ -24,6 +24,7 @@ from ..skills.scheduler import BucketScheduler
 from ..utils import updater
 from ..utils.logging import get_logger
 from ..utils.panic import PanicHotkey
+from ..utils.proc import no_window_kwargs
 from ..utils.updater import UpdateInfo
 from .icon import PulseIconAnimator, make_icon
 from .notifications import attach as attach_tray_notifier
@@ -385,7 +386,10 @@ class TrayApp(QObject):
             with contextlib.suppress(Exception):
                 import subprocess
 
-                subprocess.Popen(["explorer.exe", "/select,", str(path)])
+                subprocess.Popen(
+                    ["explorer.exe", "/select,", str(path)],
+                    **no_window_kwargs(),
+                )
 
         self._pool.start(_Task(_do))
 

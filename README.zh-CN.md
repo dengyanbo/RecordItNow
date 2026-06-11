@@ -202,8 +202,8 @@ PoI 不是单纯的标签——它驱动整条分析和搜索管线：
 
 ## 项目状态
 
-- 当前版本：**v1.0.0**（2026-06-09 发布）
-- **553 / 553 pytest 通过** · ruff 清洁
+- 当前版本：**v1.0.1**（2026-06-11 发布）
+- **558 / 558 pytest 通过** · ruff 清洁
 - CI 在 Windows + Python 3.11 / 3.12 上绿
 - 完整发布历史：[`docs/CHANGELOG.md`](docs/CHANGELOG.md)
 - 想贡献或扩展？读 [`docs/DEVELOPING.md`](docs/DEVELOPING.md)

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Literal
 
 from .logging import get_logger
+from .proc import no_window_kwargs
 
 log = get_logger(__name__)
 
@@ -67,6 +68,7 @@ def list_audio_devices(binary: str = "ffmpeg", runner=None) -> list[str]:
             errors="replace",
             timeout=10,
             check=False,
+            **no_window_kwargs(),
         )
     except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
         log.warning(f"ffmpeg device enumeration failed: {exc}")

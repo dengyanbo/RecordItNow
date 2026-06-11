@@ -2,6 +2,39 @@
 
 All notable changes to RIN — Record It Now.
 
+## v1.0.1 — Capture UX hotfix (2026-06-11)
+
+Two user-reported fixes to the capture experience. No data-format or
+config changes — upgrading is drop-in (install over the top; your
+`%LOCALAPPDATA%\RIN` data is preserved).
+
+### Fixed
+
+- **No more flashing console windows during capture/analyze.** RIN ships
+  as a windowed app (`console=False`), so every time it spawned a console
+  helper a cmd window briefly popped up — the Copilot CLI on *every*
+  analysis, ffmpeg for recording / keyframe extraction / audio-device
+  enumeration, `ffmpeg`/`pip` during diagnostics, and the Explorer
+  reveal. All subprocesses now spawn with `CREATE_NO_WINDOW` on Windows
+  via a shared `rin.utils.proc.no_window_kwargs()` helper (a no-op on
+  other platforms). User-initiated browser / folder opens are unchanged.
+- **Press-and-hold starts recording *while you hold*, not after you let
+  go.** On keyboard triggers, the OS key-repeat feature fired repeated
+  "press" events while the key was held; the gesture wrapper restarted
+  the 500 ms hold timer on each one, so it never reached the threshold
+  until release — and the release fallback then started *and* stopped a
+  recording in one go. The hold timer is now armed only on the initial
+  `IDLE → PRESSED` transition, so holding past the threshold begins
+  recording immediately and releasing stops it. Mouse / HID triggers
+  were unaffected (they don't auto-repeat).
+
+### Tests
+
+- 558 passing (+5 over v1.0.0): `rin.utils.proc` helper coverage, a
+  Copilot-CLI no-window regression test, and a gesture-recognizer
+  regression test that fails if key auto-repeat ever restarts the hold
+  timer.
+
 ## v1.0.0 — Production-stable milestone (2026-06-09)
 
 **RIN is out of alpha.** The 0.x line evolved across 18 minor + 30

@@ -21,6 +21,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from ..utils.proc import no_window_kwargs
 from .base import (
     ImageAnalysis,
     LLMError,
@@ -126,6 +127,10 @@ class CopilotCLIProvider(Provider):
                 errors="replace",
                 timeout=self.timeout_seconds,
                 check=False,
+                # Suppress the flashing console window on Windows. The
+                # analysis loop invokes this unattended on every capture;
+                # without this a cmd window pops up each time. No-op off-Windows.
+                **no_window_kwargs(),
             )
         except FileNotFoundError as exc:
             raise ProviderUnavailable(str(exc)) from exc

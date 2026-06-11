@@ -133,8 +133,16 @@ class GestureRecognizer(QObject):
         now = event.timestamp_ms or InputEvent.now_ms()
         emits: list[GestureEmit] = []
         if event.kind == "press":
+            # Keyboard auto-repeat fires repeated "press" events while the
+            # key is held down. Only arm the hold timer on the genuine first
+            # press (IDLE -> PRESSED); restarting the single-shot timer on
+            # every auto-repeat would keep resetting the countdown so it
+            # never reaches the threshold until release — which makes a hold
+            # behave like "recording only starts after you let go".
+            was_idle = self._machine.state == GestureState.IDLE
             emits = self._machine.on_press(now)
-            self._hold_timer.start()
+            if was_idle and self._machine.state == GestureState.PRESSED:
+                self._hold_timer.start()
         elif event.kind == "release":
             emits = self._machine.on_release(now)
             self._hold_timer.stop()

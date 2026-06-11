@@ -63,6 +63,20 @@ def test_effort_omitted_when_not_set(fake_binary, monkeypatch: pytest.MonkeyPatc
     assert "--effort" not in captured["args"]
 
 
+def test_run_suppresses_console_window_on_windows(
+    fake_binary, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The unattended analysis spawn must not flash a cmd window (Windows)."""
+
+    from rin.utils import proc
+
+    monkeypatch.setattr(proc.sys, "platform", "win32")
+    runner, captured = _make_run(stdout="ok")
+    monkeypatch.setattr("rin.llm.copilot_cli.subprocess.run", runner)
+    CopilotCLIProvider().analyze_text("hi")
+    assert captured["kwargs"].get("creationflags") == proc.CREATE_NO_WINDOW
+
+
 def test_analyze_image_attaches_file(fake_binary, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     img = tmp_path / "shot.png"
     img.write_bytes(b"\x89PNG\r\n\x1a\n")

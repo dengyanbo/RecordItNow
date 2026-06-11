@@ -23,6 +23,7 @@ from pathlib import Path
 from ..config import CaptureConfig
 from ..utils.encryption import CaptureCipher
 from ..utils.logging import get_logger
+from ..utils.proc import no_window_kwargs
 from ..utils.thumbnail import make_thumbnail
 from .monitors import MonitorInfo
 
@@ -156,6 +157,7 @@ def _extract_still_frame(
                 encoding="utf-8",
                 errors="replace",
                 check=False,
+                **no_window_kwargs(),
             )
         except FileNotFoundError as exc:
             log.warning(f"ffmpeg not found for thumbnail extraction: {exc}")
@@ -249,6 +251,9 @@ class VideoRecorder:
                 # Diagnostic output remains available via ffmpeg's own log
                 # files; we don't read or rely on stderr here.
                 stderr=subprocess.DEVNULL,
+                # Suppress the flashing console window on Windows (RIN is a
+                # windowed app). No-op on other platforms.
+                **no_window_kwargs(),
             )
             self._procs.append(RecorderProcess(monitor=monitor, process=proc, output=output))
             log.info(f"FFmpeg pid={proc.pid} recording monitor-{monitor.index} → {output}")

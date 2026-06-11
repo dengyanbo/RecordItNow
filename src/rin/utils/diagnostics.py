@@ -36,6 +36,7 @@ from pathlib import Path
 
 from .. import __app_name__, __version__, paths
 from ..utils.logging import get_logger
+from ..utils.proc import no_window_kwargs
 
 log = get_logger(__name__)
 
@@ -90,6 +91,7 @@ def _ffmpeg_version() -> str:
             encoding="utf-8",
             errors="replace",
             timeout=5,
+            **no_window_kwargs(),
         )
     except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
         return f"<unavailable: {exc.__class__.__name__}>"
@@ -108,6 +110,7 @@ def _pip_freeze() -> str:
             encoding="utf-8",
             errors="replace",
             timeout=30,
+            **no_window_kwargs(),
         )
     except subprocess.TimeoutExpired:
         return "<pip freeze timed out>"

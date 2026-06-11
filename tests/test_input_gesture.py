@@ -1,7 +1,9 @@
 """Gesture state machine tests — pure Python, no Qt event loop."""
 from __future__ import annotations
 
-from rin.input.gesture import GestureState, GestureStateMachine
+from rin.config import TriggerBinding
+from rin.input.base import InputEvent
+from rin.input.gesture import GestureRecognizer, GestureState, GestureStateMachine
 
 
 def test_tap_emits_shot() -> None:
@@ -57,3 +59,47 @@ def test_reset_returns_to_idle() -> None:
     sm.on_press(0.0)
     sm.reset()
     assert sm.state is GestureState.IDLE
+
+
+def test_recognizer_keyboard_autorepeat_arms_hold_timer_once(qapp, monkeypatch) -> None:
+    """Regression: keyboard auto-repeat must not keep restarting the hold timer.
+
+    Holding a key emits repeated ``press`` events (OS auto-repeat). The old
+    wrapper called ``QTimer.start()`` on every press, so the 500 ms single-shot
+    timer was reset every few tens of ms and never fired — a hold only started
+    recording on release via the fallback. The timer must be armed exactly once
+    on the IDLE -> PRESSED transition and left running through the repeats.
+    """
+
+    binding = TriggerBinding(source="keyboard", key="f12", hold_threshold_ms=500)
+    rec = GestureRecognizer(binding)
+
+    starts = 0
+    real_start = rec._hold_timer.start
+
+    def counting_start(*args, **kwargs):
+        nonlocal starts
+        starts += 1
+        return real_start(*args, **kwargs)
+
+    monkeypatch.setattr(rec._hold_timer, "start", counting_start)
+
+    def press(ts: float) -> None:
+        rec.handle_event(
+            InputEvent(kind="press", source="keyboard", identifier="f12", timestamp_ms=ts)
+        )
+
+    press(1000.0)  # genuine first press
+    for i in range(6):  # OS auto-repeat while the key is held
+        press(1000.0 + i)
+
+    assert starts == 1, "hold timer must be armed once, not restarted by auto-repeat"
+    assert rec.state is GestureState.PRESSED
+
+    # Once the threshold elapses the hold path must start recording while held.
+    monkeypatch.setattr(InputEvent, "now_ms", staticmethod(lambda: 1600.0))
+    recorded: list[str] = []
+    rec.record_started.connect(lambda: recorded.append("start"))
+    rec._on_hold_timeout()
+    assert recorded == ["start"]
+    assert rec.state is GestureState.RECORDING
