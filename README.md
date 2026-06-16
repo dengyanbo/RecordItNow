@@ -2,7 +2,7 @@
 
 > **Languages:** **English** · [中文](README.zh-CN.md) · **Building or contributing?** see [`docs/DEVELOPING.md`](docs/DEVELOPING.md)
 
-[![tests](https://img.shields.io/badge/tests-553%20%2F%20553-brightgreen)](docs/DEVELOPING.md#testing)
+[![tests](https://img.shields.io/badge/tests-567%20%2F%20567-brightgreen)](docs/DEVELOPING.md#testing)
 [![python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)](#requirements)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D4)](#requirements)
@@ -15,7 +15,7 @@ lets an LLM make it searchable**.
 - **Tap** your trigger → full-resolution PNG of every monitor + thumbnail
 - **Hold** (> 500 ms) → MP4 + audio recording until you release
 - During idle / off-hours, RIN runs **OCR + Whisper + a vision LLM** on each capture and indexes the summaries into a local vector store
-- Ask **🔎 Search & Ask** in natural language (*"what was that error I saw on Tuesday?"*); a RAG agent answers with `cap-N` citations
+- **🔎 Search & Ask** in one conversation — flip the **Search / Ask** toggle to find captures semantically *or* ask in natural language (*"what was that error I saw on Tuesday?"*); the RAG agent answers with `cap-N` citations
 - Generates daily / weekly Markdown reports, exportable to PDF / HTML / your Obsidian vault
 - **Skills** plug in to categorize captures by your own rules — bundled defaults recognise 16-digit case IDs and 19-digit collab task IDs; auto-archive when done
 - 100 % local storage. Cloud LLM only if you pick one (`copilot_cli` default needs no API key)
