@@ -198,6 +198,11 @@ class RinConfig(BaseModel):
     # via a tray balloon. Turn off in Settings → About if you'd rather
     # not have any outbound network traffic from RIN itself.
     auto_check_updates: bool = True
+    # v1.1.0: remembers the last-used mode in the Search & Ask window
+    # ("search" = semantic capture search, "ask" = RAG Q&A). The window
+    # opens in this mode and writes it back whenever the user flips the
+    # in-window toggle.
+    search_mode: Literal["search", "ask"] = "ask"
     trigger: TriggerBinding = Field(default_factory=TriggerBinding)
     working_hours: WorkingHours = Field(default_factory=WorkingHours)
     llm: LLMProviderConfig = Field(default_factory=LLMProviderConfig)

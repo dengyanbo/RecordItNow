@@ -85,7 +85,7 @@
 | 2 | 在 Windows 任何地方按这个键 | 所有屏幕的 PNG + 240×135 缩略图保存 |
 | 3 | 按住超过 500 ms | 开始录 MP4，托盘图标红点闪烁。松手停止。 |
 | 4 | 托盘 → 🧠 *Analyze now* | OCR + LLM 总结每个未分析的 capture，toast 报告进度 |
-| 5 | 托盘 → 🔎 *Search…* | 输入查询 → 语义搜索结果。提问 → agent 带 `cap-N` 引用回答 |
+| 5 | 托盘 → 🔎 *Search…* | 单一对话框，用 **Search / Ask** 开关切换：*Search* 在对话里返回语义搜索结果卡片，*Ask* 让 RAG agent 带 `cap-N` 引用回答 |
 | 6 | 托盘 → 📄 *Reports…* → *Today* | 当天 Markdown 报告，工具栏可导出 PDF / HTML |
 | 7 | Settings → **Skills** → 启用 *Support tickets* | 默认识别 16 位 case ID 和 19 位 collab task ID，看到 "Status: Closed" 就归档 |
 | 8 | `Ctrl + Alt + Shift + P` | 紧急暂停快捷键（仅 RAM；持久暂停在 Settings → Privacy） |
@@ -202,8 +202,8 @@ PoI 不是单纯的标签——它驱动整条分析和搜索管线：
 
 ## 项目状态
 
-- 当前版本：**v1.0.1**（2026-06-11 发布）
-- **558 / 558 pytest 通过** · ruff 清洁
+- 当前版本：**v1.1.0**（2026-06-16 发布）
+- **567 / 567 pytest 通过** · ruff 清洁
 - CI 在 Windows + Python 3.11 / 3.12 上绿
 - 完整发布历史：[`docs/CHANGELOG.md`](docs/CHANGELOG.md)
 - 想贡献或扩展？读 [`docs/DEVELOPING.md`](docs/DEVELOPING.md)

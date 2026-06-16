@@ -1,20 +1,27 @@
-"""Search & RAG Q&A window — v0.4.1 polish pass.
+"""Search & Ask — one unified ChatGPT/Gemini-style conversation (v1.1.0).
 
-Single column with a combined search bar (attached button), result
-cards, and a chat thread below for the RAG agent. Both empty states use
-tinted SVG icons; user bubbles use ``accent_subtle`` and right-align,
-agent bubbles use the surface colour and left-align with a tail.
+A single scrollable conversation thread plus one input bar. A
+``Search | Ask`` segmented toggle next to the input decides what happens
+when the user submits:
+
+* **Search** runs semantic capture search and renders a left-aligned
+  "results" message containing the matching capture cards.
+* **Ask** runs the RAG agent and renders a left-aligned agent bubble with
+  ``cap-N`` citations.
+
+Both kinds of turn share the same thread, so search results and answers
+interleave with the user's queries. The active mode is remembered in
+``config.search_mode`` and restored next time the window opens.
 """
 from __future__ import annotations
 
 from PySide6.QtCore import QObject, QRunnable, QSize, Qt, QThreadPool, Signal
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QListWidget,
-    QListWidgetItem,
     QPushButton,
     QScrollArea,
     QStackedWidget,
@@ -34,7 +41,7 @@ log = get_logger(__name__)
 
 
 class _SearchEmptyState(QWidget):
-    """Centered placeholder for the search-results / chat areas, with icon."""
+    """Centered placeholder shown before the first message, with icon."""
 
     def __init__(
         self,
@@ -73,38 +80,6 @@ class _SearchEmptyState(QWidget):
     def set_text(self, title: str, hint: str) -> None:
         self._title.setText(title)
         self._hint.setText(hint)
-
-
-class _SpinnerState(QWidget):
-    """Centered :class:`Spinner` + message — used while a worker is running."""
-
-    def __init__(
-        self,
-        text: str,
-        *,
-        theme,
-        parent: QWidget | None = None,
-    ) -> None:
-        super().__init__(parent)
-        self._spinner = Spinner(size=32, accent=theme.accent, parent=self)
-        self._label = QLabel(text)
-        self._label.setProperty("role", "empty-state-hint")
-        self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._label.setWordWrap(True)
-        self._label.setMinimumHeight(24)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(40, 24, 40, 24)
-        layout.setSpacing(12)
-        layout.addStretch()
-        layout.addWidget(self._spinner, 0, Qt.AlignmentFlag.AlignHCenter)
-        layout.addWidget(self._label)
-        layout.addStretch()
-
-    def set_text(self, text: str) -> None:
-        self._label.setText(text)
-
-    def set_theme(self, theme) -> None:
-        self._spinner.set_accent(theme.accent)
 
 
 class _WorkerSignals(QObject):
@@ -167,6 +142,34 @@ def _result_card(hit: SearchHit) -> QWidget:
     return card
 
 
+def _results_message(hits: list[SearchHit]) -> QWidget:
+    """Left-aligned conversation turn holding the search result cards."""
+
+    container = QWidget()
+    col = QVBoxLayout(container)
+    col.setContentsMargins(0, 0, 0, 0)
+    col.setSpacing(8)
+    if not hits:
+        empty = QLabel("No matches — try different wording.")
+        empty.setProperty("role", "empty-state-hint")
+        empty.setWordWrap(True)
+        col.addWidget(empty)
+    else:
+        header = QLabel(f"Found {len(hits)} capture{'s' if len(hits) != 1 else ''}")
+        header.setProperty("role", "caption")
+        col.addWidget(header)
+        for h in hits:
+            col.addWidget(_result_card(h))
+    container.setMaximumWidth(620)
+
+    wrapper = QWidget()
+    row = QHBoxLayout(wrapper)
+    row.setContentsMargins(0, 0, 0, 0)
+    row.addWidget(container, 0)
+    row.addStretch()
+    return wrapper
+
+
 def _chat_bubble(text: str, role: str, citations: list[SearchHit] | None = None) -> QWidget:
     """Build a chat bubble: ``role`` is "user" or "agent"."""
 
@@ -210,6 +213,56 @@ def _chat_bubble(text: str, role: str, citations: list[SearchHit] | None = None)
     return wrapper
 
 
+class _ModeToggle(QWidget):
+    """Segmented ``Search | Ask`` control. Emits the chosen mode on click."""
+
+    mode_changed = Signal(str)  # "search" | "ask"
+
+    def __init__(
+        self,
+        initial: str = "ask",
+        *,
+        ask_enabled: bool = True,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._search_btn = QPushButton("Search")
+        self._ask_btn = QPushButton("Ask")
+        for btn, pos in ((self._search_btn, "left"), (self._ask_btn, "right")):
+            btn.setCheckable(True)
+            btn.setProperty("role", "segment")
+            btn.setProperty("segment-pos", pos)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        group = QButtonGroup(self)
+        group.setExclusive(True)
+        group.addButton(self._search_btn)
+        group.addButton(self._ask_btn)
+
+        self._ask_btn.setEnabled(ask_enabled)
+        if initial == "ask" and ask_enabled:
+            self._ask_btn.setChecked(True)
+        else:
+            self._search_btn.setChecked(True)
+
+        # ``clicked`` only fires on user interaction, not on the programmatic
+        # setChecked above — so opening the window never re-persists the mode.
+        self._search_btn.clicked.connect(lambda: self.mode_changed.emit("search"))
+        self._ask_btn.clicked.connect(lambda: self.mode_changed.emit("ask"))
+
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(0)
+        row.addWidget(self._search_btn)
+        row.addWidget(self._ask_btn)
+
+    def mode(self) -> str:
+        return "search" if self._search_btn.isChecked() else "ask"
+
+    def set_mode(self, mode: str) -> None:
+        (self._search_btn if mode == "search" else self._ask_btn).setChecked(True)
+
+
 class SearchWindow(QWidget):
     def __init__(self, config: RinConfig, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -222,78 +275,56 @@ class SearchWindow(QWidget):
         self._signals.error.connect(self._on_error)
 
         self.setWindowTitle("RIN — Search & Ask")
-        self.resize(960, 780)
+        self.resize(860, 760)
 
-        # --- top: search ------------------------------------------------------
-        self._query = QLineEdit()
-        self._query.setPlaceholderText("Search captures semantically…")
-        self._query.setProperty("role", "search")
-        self._query.returnPressed.connect(self._do_search)
-        search_btn = QPushButton("Search")
-        search_btn.setProperty("primary", True)
-        search_btn.setProperty("role", "search-attached")
-        search_btn.clicked.connect(self._do_search)
-        top_row = QHBoxLayout()
-        top_row.setSpacing(0)
-        top_row.addWidget(self._query, 1)
-        top_row.addWidget(search_btn, 0)
+        # Restore the persisted mode; force Search when no provider is available.
+        self._mode = getattr(config, "search_mode", "ask")
+        if self._agent is None:
+            self._mode = "search"
 
-        self._results = QListWidget()
-        self._results.setProperty("role", "cards")
-        self._results.setSpacing(0)
-        self._results.setFrameShape(QFrame.Shape.NoFrame)
-
-        self._results_empty = _SearchEmptyState(
-            "Search your captures",
-            "Type a few words above to find captures by meaning, not just keyword.",
-            icon_name="search",
-        )
-        self._results_busy = _SpinnerState(
-            "Searching captures…",
-            theme=self._theme(),
-        )
-        self._results_stack = QStackedWidget()
-        self._results_stack.addWidget(self._results_empty)
-        self._results_stack.addWidget(self._results)
-        self._results_stack.addWidget(self._results_busy)
-
-        # --- bottom: ask ------------------------------------------------------
+        # --- conversation thread ----------------------------------------------
         self._chat_container = QWidget()
         self._chat_layout = QVBoxLayout(self._chat_container)
         self._chat_layout.setContentsMargins(0, 0, 8, 0)
         self._chat_layout.setSpacing(10)
         self._chat_layout.addStretch()
 
-        chat_scroll = QScrollArea()
-        chat_scroll.setWidgetResizable(True)
-        chat_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        chat_scroll.setWidget(self._chat_container)
-        self._chat_scroll = chat_scroll
+        self._chat_scroll = QScrollArea()
+        self._chat_scroll.setWidgetResizable(True)
+        self._chat_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._chat_scroll.setWidget(self._chat_container)
 
-        self._chat_empty = _SearchEmptyState(
-            "Ask anything about your captures",
-            "Try: \"what was that error I saw on Tuesday?\" — answers come back "
-            "with citations to specific captures.",
-            icon_name="chat",
+        self._empty = _SearchEmptyState(
+            "Search your captures or ask a question",
+            "Pick Search to find captures by meaning, or Ask to get answers with "
+            "citations. Type below and press Enter.",
+            icon_name="search",
         )
-        self._chat_stack = QStackedWidget()
-        self._chat_stack.addWidget(self._chat_empty)
-        self._chat_stack.addWidget(chat_scroll)
+        self._stack = QStackedWidget()
+        self._stack.addWidget(self._empty)        # index 0
+        self._stack.addWidget(self._chat_scroll)  # index 1
 
-        self._question = QLineEdit()
-        self._question.setPlaceholderText(
-            "Ask anything (e.g. 'what was that error I saw on Tuesday?')"
-        )
-        self._question.setProperty("role", "search")
-        self._question.returnPressed.connect(self._do_ask)
-        ask_btn = QPushButton("Send")
-        ask_btn.setProperty("primary", True)
-        ask_btn.setProperty("role", "search-attached")
-        ask_btn.clicked.connect(self._do_ask)
-        ask_row = QHBoxLayout()
-        ask_row.setSpacing(0)
-        ask_row.addWidget(self._question, 1)
-        ask_row.addWidget(ask_btn, 0)
+        # --- input bar --------------------------------------------------------
+        self._toggle = _ModeToggle(self._mode, ask_enabled=self._agent is not None)
+        self._toggle.mode_changed.connect(self._on_mode_changed)
+
+        self._input = QLineEdit()
+        self._input.setProperty("role", "search")
+        self._input.returnPressed.connect(self._submit)
+        self._submit_btn = QPushButton()
+        self._submit_btn.setProperty("primary", True)
+        self._submit_btn.setProperty("role", "search-attached")
+        self._submit_btn.clicked.connect(self._submit)
+
+        attached = QHBoxLayout()
+        attached.setSpacing(0)
+        attached.addWidget(self._input, 1)
+        attached.addWidget(self._submit_btn, 0)
+
+        input_row = QHBoxLayout()
+        input_row.setSpacing(10)
+        input_row.addWidget(self._toggle, 0)
+        input_row.addLayout(attached, 1)
 
         # --- assemble ---------------------------------------------------------
         layout = QVBoxLayout(self)
@@ -304,36 +335,18 @@ class SearchWindow(QWidget):
         heading.setProperty("heading", "h1")
         layout.addWidget(heading)
         sub = QLabel(
-            "Semantic search across your captures, plus a RAG agent that "
-            "answers natural-language questions with citations."
+            "One place to search your captures semantically or ask the RAG agent "
+            "— pick a mode and type below."
         )
         sub.setProperty("role", "caption")
         sub.setWordWrap(True)
         layout.addWidget(sub)
-        layout.addSpacing(16)
+        layout.addSpacing(12)
+        layout.addWidget(self._stack, 1)
+        layout.addSpacing(8)
+        layout.addLayout(input_row)
 
-        search_heading = QLabel("Search captures")
-        search_heading.setProperty("heading", "subtle")
-        layout.addWidget(search_heading)
-        layout.addLayout(top_row)
-        layout.addSpacing(6)
-        layout.addWidget(self._results_stack, 2)
-
-        layout.addSpacing(16)
-        ask_heading = QLabel("Ask")
-        ask_heading.setProperty("heading", "subtle")
-        layout.addWidget(ask_heading)
-        layout.addWidget(self._chat_stack, 3)
-        layout.addSpacing(6)
-        layout.addLayout(ask_row)
-
-        if self._agent is None:
-            # Replace the chat empty state with a "no provider" warning.
-            self._chat_empty.set_text(
-                "Q&A is disabled",
-                "No LLM provider is configured. Search still works. "
-                "Open Settings → Analysis to pick a provider.",
-            )
+        self._sync_mode_ui()
 
     def _theme(self):
         try:
@@ -341,74 +354,85 @@ class SearchWindow(QWidget):
         except Exception:
             return LIGHT
 
-    # --- slots ----------------------------------------------------------------
+    # --- mode -----------------------------------------------------------------
 
-    def _do_search(self) -> None:
-        q = self._query.text().strip()
+    def _sync_mode_ui(self) -> None:
+        """Adapt the placeholder + submit button to the active mode."""
+
+        if self._mode == "search":
+            self._input.setPlaceholderText("Search captures semantically…")
+            self._submit_btn.setText("Search")
+        else:
+            self._input.setPlaceholderText(
+                "Ask anything (e.g. 'what was that error I saw on Tuesday?')"
+            )
+            self._submit_btn.setText("Send")
+
+    def _on_mode_changed(self, mode: str) -> None:
+        if mode == self._mode:
+            return
+        self._mode = mode
+        self._sync_mode_ui()
+        # Persist the choice so the window reopens in the same mode.
+        try:
+            self.config.search_mode = mode
+            self.config.save()
+        except Exception as exc:  # pragma: no cover - best effort
+            log.warning(f"Could not persist search_mode: {exc}")
+        self._input.setFocus()
+
+    # --- submit / slots -------------------------------------------------------
+
+    def _submit(self) -> None:
+        q = self._input.text().strip()
         if not q:
             return
-        # Replace the empty / previous-results pane with a centered
-        # spinner while the worker runs.
-        self._results_busy.set_theme(self._theme())
-        self._results_busy.set_text("Searching captures…")
-        self._results_stack.setCurrentWidget(self._results_busy)
-        self._pool.start(_SearchTask(q, self._signals))
-
-    def _do_ask(self) -> None:
-        if self._agent is None:
-            return
-        q = self._question.text().strip()
-        if not q:
-            return
-        # Switch from empty state to chat scroller on first message.
-        self._chat_stack.setCurrentIndex(1)
+        self._stack.setCurrentIndex(1)
         self._add_chat_bubble(q, role="user")
-        self._question.clear()
-        # Insert a spinner bubble that we'll replace when the answer arrives.
-        self._add_thinking_bubble()
+        self._input.clear()
+
+        if self._mode == "search":
+            self._add_thinking_bubble("Searching captures…")
+            self._pool.start(_SearchTask(q, self._signals))
+            return
+
+        if self._agent is None:
+            self._add_chat_bubble(
+                "Q&A is disabled — no LLM provider is configured. Switch to "
+                "Search, or pick a provider in Settings → Analysis.",
+                role="agent",
+            )
+            return
+        self._add_thinking_bubble("Thinking…")
         self._pool.start(_AskTask(self._agent, q, self._signals))
 
     def _on_search_done(self, hits: list[SearchHit]) -> None:
-        self._results.clear()
-        self._results_stack.setCurrentWidget(self._results)
-        if not hits:
-            empty = QListWidgetItem("No matches — try different wording.")
-            empty.setFlags(Qt.ItemFlag.NoItemFlags)
-            self._results.addItem(empty)
-            return
-        for h in hits:
-            card = _result_card(h)
-            item = QListWidgetItem()
-            item.setSizeHint(card.sizeHint())
-            item.setData(Qt.ItemDataRole.UserRole, h.capture_id)
-            self._results.addItem(item)
-            self._results.setItemWidget(item, card)
+        self._remove_last_widget()
+        message = _results_message(hits)
+        self._chat_layout.insertWidget(self._chat_layout.count() - 1, message)
+        self._scroll_to_bottom()
 
     def _on_answer_done(self, answer: Answer) -> None:
-        self._replace_last_agent_bubble(answer.text, citations=answer.hits)
+        self._remove_last_widget()
+        self._add_chat_bubble(answer.text, role="agent", citations=answer.hits)
 
     def _on_error(self, msg: str) -> None:
         log.error(f"Search window error: {msg}")
-        # Surface in the right pane the user is currently looking at.
-        if self._results_stack.currentWidget() is self._results_busy:
-            self._results_stack.setCurrentWidget(self._results)
-            self._results.clear()
-            item = QListWidgetItem(f"Search failed: {msg}")
-            item.setFlags(Qt.ItemFlag.NoItemFlags)
-            self._results.addItem(item)
-        self._replace_last_agent_bubble(f"Error: {msg}", citations=None)
+        self._remove_last_widget()
+        self._add_chat_bubble(f"Error: {msg}", role="agent")
 
-    def _add_chat_bubble(self, text: str, *, role: str,
-                         citations: list[SearchHit] | None = None) -> None:
+    # --- thread helpers -------------------------------------------------------
+
+    def _add_chat_bubble(
+        self, text: str, *, role: str, citations: list[SearchHit] | None = None
+    ) -> None:
         bubble = _chat_bubble(text, role, citations)
-        # Insert before the trailing stretch (which is the last item).
+        # Insert before the trailing stretch (always the last layout item).
         self._chat_layout.insertWidget(self._chat_layout.count() - 1, bubble)
-        # Auto-scroll to bottom.
-        bar = self._chat_scroll.verticalScrollBar()
-        bar.setValue(bar.maximum())
+        self._scroll_to_bottom()
 
-    def _add_thinking_bubble(self) -> None:
-        """Insert an animated 'agent is thinking' bubble (spinner + label)."""
+    def _add_thinking_bubble(self, text: str = "Thinking…") -> None:
+        """Insert an animated 'working' bubble (spinner + label)."""
 
         bubble = QFrame()
         bubble.setObjectName("card")
@@ -418,7 +442,7 @@ class SearchWindow(QWidget):
         inner.setSpacing(10)
         spinner = Spinner(size=18, accent=self._theme().accent, parent=bubble)
         spinner.start()
-        label = QLabel("Thinking…")
+        label = QLabel(text)
         label.setProperty("role", "empty-state-hint")
         inner.addWidget(spinner, 0, Qt.AlignmentFlag.AlignVCenter)
         inner.addWidget(label, 0, Qt.AlignmentFlag.AlignVCenter)
@@ -427,21 +451,29 @@ class SearchWindow(QWidget):
         row.setContentsMargins(0, 0, 0, 0)
         row.addWidget(bubble, 0)
         row.addStretch()
-        bubble.setMaximumWidth(220)
-        # Marker so _replace_last_agent_bubble knows what to remove.
+        bubble.setMaximumWidth(240)
         wrapper.setProperty("thinking", True)
         self._chat_layout.insertWidget(self._chat_layout.count() - 1, wrapper)
-        bar = self._chat_scroll.verticalScrollBar()
-        bar.setValue(bar.maximum())
+        self._scroll_to_bottom()
 
-    def _replace_last_agent_bubble(self, text: str, *,
-                                   citations: list[SearchHit] | None) -> None:
-        # Remove the most recent 'thinking' placeholder (if any).
+    def _remove_last_widget(self) -> None:
+        """Remove the most recent thread widget (the trailing 'thinking' bubble).
+
+        ``setParent(None)`` removes it from the display *synchronously* —
+        ``deleteLater`` alone is not enough because the deferred-delete event
+        is only processed when the event loop unwinds, so the bubble (and its
+        spinner) would keep painting until then.
+        """
+
         for i in range(self._chat_layout.count() - 1, -1, -1):
             item = self._chat_layout.itemAt(i)
             w = item.widget()
             if w is not None:
-                w.deleteLater()
                 self._chat_layout.removeItem(item)
+                w.setParent(None)
+                w.deleteLater()
                 break
-        self._add_chat_bubble(text, role="agent", citations=citations)
+
+    def _scroll_to_bottom(self) -> None:
+        bar = self._chat_scroll.verticalScrollBar()
+        bar.setValue(bar.maximum())

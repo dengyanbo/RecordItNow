@@ -378,8 +378,10 @@ After installing, walk this sequence in order:
    `<name>.thumb.jpg` sidecar is also written.
 5. **Analyze.** Tray → *🧠 Analyze now*. Progress toasts; final toast
    confirms `Analysis complete — N/N`.
-6. **Search.** Tray → *🔎 Search…* → type a query. Hits show; ask a
-   question, agent answers with `cap-N` citations.
+6. **Search.** Tray → *🔎 Search…* → one conversation box with a
+   **Search / Ask** toggle. In *Search* mode a query returns semantic
+   hit cards inline; flip to *Ask* and a question gets a RAG answer with
+   `cap-N` citations. The last-used mode is remembered (`search_mode`).
 7. **Generate a report.** Tray → *📄 Reports…* → *Generate today*. A
    `BusyOverlay` spinner appears while the LLM runs; daily Markdown
    saves to `reports\daily-YYYYMMDD.md`. Click **Export PDF** /

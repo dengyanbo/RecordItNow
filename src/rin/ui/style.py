@@ -610,6 +610,39 @@ QPushButton[role="search-attached"] {{
     min-width: 96px;
 }}
 
+/* ----- segmented mode toggle (Search | Ask) --------------------------- */
+
+QPushButton[role="segment"] {{
+    background: {t.surface};
+    color: {t.text_muted};
+    border: 1px solid {t.border};
+    padding: 6px 16px;
+    font-weight: 600;
+}}
+
+QPushButton[role="segment"]:hover {{
+    color: {t.text};
+    border-color: {t.border_strong};
+}}
+
+QPushButton[role="segment"]:checked {{
+    background: {t.accent};
+    color: {t.on_accent};
+    border-color: {t.accent};
+}}
+
+/* Join the two segments into one pill: left rounded, right rounded. */
+QPushButton[role="segment"][segment-pos="left"] {{
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}}
+
+QPushButton[role="segment"][segment-pos="right"] {{
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+    border-left: 0;
+}}
+
 /* ----- group + frame --------------------------------------------------- */
 
 QGroupBox {{

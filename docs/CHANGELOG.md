@@ -2,6 +2,42 @@
 
 All notable changes to RIN — Record It Now.
 
+## v1.1.0 — Unified Search & Ask (2026-06-16)
+
+The **Search & Ask** window is now a single ChatGPT / Gemini-style
+conversation instead of two stacked panels with separate inputs. No
+data-format or config changes — drop-in upgrade.
+
+### Changed
+
+- **One conversation, one input, a `Search | Ask` toggle.** The old window
+  had a "Search captures" section (result cards) *and* a separate "Ask"
+  section (chat thread), each with its own input box — visually redundant.
+  Now there is a single scrollable thread with one input bar and a
+  segmented **Search | Ask** toggle:
+  - **Search** renders results *inline in the thread* as a left-aligned
+    "Found N captures" message containing the capture cards.
+  - **Ask** renders a left-aligned agent bubble with `cap-N` citation chips.
+  - Your query appears as a right-aligned bubble; both kinds of turn
+    interleave in one history. The input placeholder + button label adapt
+    to the active mode.
+- **The last-used mode is remembered** in a new `search_mode` config field
+  (default `ask`); the window reopens in whatever you used last. When no LLM
+  provider is configured, Ask is disabled and the window stays in Search.
+
+### Fixed
+
+- The transient "thinking" spinner bubble is now removed *synchronously*
+  (`setParent(None)`) when a result/answer arrives. Previously it relied on
+  `deleteLater()`, which is asynchronous, so under some event-loop timing it
+  could linger as a stray bubble. Caught by a new `widget.grab()` render test.
+
+### Tests
+
+- 567 passing (+9 over v1.0.1): a new `tests/test_ui_search_window.py`
+  covering mode persistence, Search/Ask routing, empty results, citation
+  rendering, the no-provider path, and the thinking-bubble-removal regression.
+
 ## v1.0.1 — Capture UX hotfix (2026-06-11)
 
 Two user-reported fixes to the capture experience. No data-format or

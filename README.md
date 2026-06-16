@@ -86,7 +86,7 @@ Your captures, database, logs and downloaded models live in
 | 2 | Tap that key from anywhere in Windows | Multi-monitor PNG + 240×135 thumbnail saved |
 | 3 | Hold the key > 500 ms | MP4 video starts; red dot pulses on the tray icon. Release to stop. |
 | 4 | Tray → 🧠 *Analyze now* | OCR + LLM summarise every recent capture; toasts report progress |
-| 5 | Tray → 🔎 *Search…* | Type a query → semantic hits. Ask a question → agent answers with `cap-N` citations |
+| 5 | Tray → 🔎 *Search…* | One conversation box with a **Search / Ask** toggle — *Search* returns semantic hit cards inline, *Ask* gets a RAG answer with `cap-N` citations |
 | 6 | Tray → 📄 *Reports…* → *Today* | Daily Markdown saved; export PDF / HTML from the toolbar |
 | 7 | Settings → **Skills** → enable *Support tickets* | Auto-groups captures by 16-digit case ID / 19-digit collab task ID; archives when "Status: Closed" appears |
 | 8 | `Ctrl + Alt + Shift + P` | Panic-pause hotkey (RAM-only; persistent pause lives in Settings → Privacy) |
@@ -212,8 +212,8 @@ Want sequence diagrams + per-module rationale? See
 
 ## Project status
 
-- Current: **v1.0.1** (released 2026-06-11)
-- **558 / 558 pytest** pass · ruff clean
+- Current: **v1.1.0** (released 2026-06-16)
+- **567 / 567 pytest** pass · ruff clean
 - CI green on Python 3.11 + 3.12 on `windows-latest`
 - Full release history: [`docs/CHANGELOG.md`](docs/CHANGELOG.md)
 - Want to contribute or extend? Read [`docs/DEVELOPING.md`](docs/DEVELOPING.md)
