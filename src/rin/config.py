@@ -114,6 +114,18 @@ class CaptureConfig(BaseModel):
     # (e.g. ``"Microphone (Realtek Audio)"`` or ``"Stereo Mix (Realtek Audio)"``).
     # Leave None to record video only.
     audio_device: str | None = None
+    # v1.2.0 — screen-recording backend.
+    # "auto"     → use ddagrab (Desktop Duplication API) when available, else gdigrab.
+    # "ddagrab"  → force ddagrab (GPU-accelerated, no cursor flicker, keeps the cursor;
+    #              requires ffmpeg 6.1+ AND a real GPU + local console — NOT available
+    #              over RDP or on GPU-less VMs).
+    # "gdigrab"  → force the legacy GDI grabber (works everywhere, but the live mouse
+    #              cursor flickers while recording when draw_cursor is True).
+    video_backend: Literal["auto", "ddagrab", "gdigrab"] = "auto"
+    # Whether to capture the mouse cursor into the recording. ddagrab draws it without
+    # flicker; on the gdigrab fallback, setting this False is the only way to stop the
+    # on-screen cursor flicker (at the cost of no cursor in the video).
+    draw_cursor: bool = True
     enable_quick_note: bool = False
     quick_note_seconds: int = 5
     quick_note_audio_device: str | None = None

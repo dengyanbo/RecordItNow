@@ -2,7 +2,7 @@
 
 > **Languages:** **English** · [中文](README.zh-CN.md) · **Building or contributing?** see [`docs/DEVELOPING.md`](docs/DEVELOPING.md)
 
-[![tests](https://img.shields.io/badge/tests-567%20%2F%20567-brightgreen)](docs/DEVELOPING.md#testing)
+[![tests](https://img.shields.io/badge/tests-581%20%2F%20581-brightgreen)](docs/DEVELOPING.md#testing)
 [![python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)](#requirements)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D4)](#requirements)
@@ -212,8 +212,8 @@ Want sequence diagrams + per-module rationale? See
 
 ## Project status
 
-- Current: **v1.1.0** (released 2026-06-16)
-- **567 / 567 pytest** pass · ruff clean
+- Current: **v1.2.0** (released 2026-06-22)
+- **581 / 581 pytest** pass · ruff clean
 - CI green on Python 3.11 + 3.12 on `windows-latest`
 - Full release history: [`docs/CHANGELOG.md`](docs/CHANGELOG.md)
 - Want to contribute or extend? Read [`docs/DEVELOPING.md`](docs/DEVELOPING.md)

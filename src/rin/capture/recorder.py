@@ -1,8 +1,21 @@
 """FFmpeg-driven video + audio recorder.
 
-We spawn one ``ffmpeg`` subprocess per physical monitor that captures the
-monitor region via Windows ``gdigrab`` and mixes in microphone + WASAPI
-loopback audio via ``dshow``. Each subprocess writes its own ``monitor-N.mp4``.
+We spawn one ``ffmpeg`` subprocess per physical monitor and mix in
+microphone / loopback audio via ``dshow``. Each subprocess writes its own
+``monitor-N.mp4``.
+
+Capture backend (v1.2.0):
+
+* **ddagrab** — the Desktop Duplication API grabber. GPU-accelerated, and
+  crucially it composites the mouse cursor *without* the on-screen flicker
+  that ``gdigrab`` causes. Requires ffmpeg 6.1+ and a real GPU on a local
+  console session — it does **not** work over RDP or on GPU-less VMs.
+* **gdigrab** — the legacy GDI grabber. Works everywhere (including RDP),
+  but the live mouse cursor flickers while recording when the cursor is
+  drawn. Used as the automatic fallback when ddagrab is unavailable.
+
+:func:`select_backend` picks between them; ``video_backend="auto"`` probes
+ddagrab once (cached) and falls back to gdigrab.
 
 Stopping is graceful: we send ``q`` to ffmpeg's stdin, which makes it
 finalize the MP4 moov atom. If that fails within a small timeout we
@@ -14,6 +27,7 @@ warn the user when it can't be found on PATH.
 from __future__ import annotations
 
 import contextlib
+import functools
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -43,6 +57,74 @@ def ffmpeg_available(binary: str = "ffmpeg") -> bool:
     return shutil.which(binary) is not None
 
 
+@functools.lru_cache(maxsize=4)
+def ddagrab_available(binary: str = "ffmpeg") -> bool:
+    """Return True if ffmpeg can actually initialize the ddagrab grabber.
+
+    A presence check on the filter is not enough: ddagrab is built into
+    recent ffmpeg yet still fails at runtime over RDP or on GPU-less VMs
+    ("Failed to create D3D11VA device"). So we run a tiny one-frame probe
+    and trust the exit code. The result is cached per-binary because the
+    capability does not change within a session.
+
+    Returns False on any error (old ffmpeg without ddagrab, no GPU/desktop,
+    RDP session, missing binary, timeout).
+    """
+
+    if not ffmpeg_available(binary):
+        return False
+    probe = [
+        binary,
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-filter_complex",
+        "ddagrab=output_idx=0:framerate=30,hwdownload,format=bgra",
+        "-frames:v",
+        "1",
+        "-f",
+        "null",
+        "-",
+    ]
+    try:
+        proc = subprocess.run(
+            probe,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=15,
+            check=False,
+            **no_window_kwargs(),
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
+        log.info(f"ddagrab probe failed ({exc.__class__.__name__}); using gdigrab")
+        return False
+    ok = proc.returncode == 0
+    if not ok:
+        log.info(
+            "ddagrab unavailable (rc=%s) — falling back to gdigrab. "
+            "This is expected over RDP or on GPU-less VMs.",
+            proc.returncode,
+        )
+    return ok
+
+
+def select_backend(capture_cfg: CaptureConfig, binary: str = "ffmpeg") -> str:
+    """Resolve the effective recording backend ("ddagrab" or "gdigrab").
+
+    ``video_backend="auto"`` prefers ddagrab when the probe succeeds, else
+    gdigrab. ``"ddagrab"`` / ``"gdigrab"`` force the choice (no probe).
+    """
+
+    requested = getattr(capture_cfg, "video_backend", "auto")
+    if requested == "gdigrab":
+        return "gdigrab"
+    if requested == "ddagrab":
+        return "ddagrab"
+    return "ddagrab" if ddagrab_available(binary) else "gdigrab"
+
+
 def build_ffmpeg_command(
     monitor: MonitorInfo,
     output: Path,
@@ -51,37 +133,59 @@ def build_ffmpeg_command(
     audio_device: str | None = None,
     binary: str = "ffmpeg",
     framerate: int = 30,
+    backend: str = "gdigrab",
+    output_idx: int = 0,
 ) -> list[str]:
-    """Return an ffmpeg argv that records one monitor + (optional) audio device."""
+    """Return an ffmpeg argv that records one monitor + (optional) audio device.
 
-    cmd: list[str] = [
-        binary,
-        "-y",
-        "-hide_banner",
-        "-loglevel",
-        "warning",
-        "-f",
-        "gdigrab",
-        "-framerate",
-        str(framerate),
-        "-offset_x",
-        str(monitor.x),
-        "-offset_y",
-        str(monitor.y),
-        "-video_size",
-        f"{monitor.width}x{monitor.height}",
-        "-i",
-        "desktop",
-    ]
-    if audio_device:
+    ``backend`` selects ``ddagrab`` (Desktop Duplication API — no cursor
+    flicker, keeps the cursor) or ``gdigrab`` (legacy GDI grabber). For
+    ddagrab, ``output_idx`` chooses which DXGI output (monitor) to capture.
+    Whether the mouse cursor is drawn is read from ``capture_cfg.draw_cursor``.
+    """
+
+    draw_cursor = getattr(capture_cfg, "draw_cursor", True)
+    mouse_flag = "1" if draw_cursor else "0"
+
+    cmd: list[str] = [binary, "-y", "-hide_banner", "-loglevel", "warning"]
+
+    if backend == "ddagrab":
+        # ddagrab is a source filter that outputs D3D11 hardware frames;
+        # hwdownload,format=bgra brings them to system memory so libx264
+        # (software) can encode them — universal, no hw-encoder dependency.
+        # Audio (when present) is input #0; the labelled [v] filter output
+        # is mapped explicitly alongside it.
+        if audio_device:
+            cmd.extend(["-f", "dshow", "-i", f"audio={audio_device}"])
+        ddagrab_src = (
+            f"ddagrab=output_idx={output_idx}:framerate={framerate}"
+            f":draw_mouse={mouse_flag},hwdownload,format=bgra[v]"
+        )
+        cmd.extend(["-filter_complex", ddagrab_src, "-map", "[v]"])
+        if audio_device:
+            cmd.extend(["-map", "0:a"])
+    else:
         cmd.extend(
             [
                 "-f",
-                "dshow",
+                "gdigrab",
+                "-framerate",
+                str(framerate),
+                "-draw_mouse",
+                mouse_flag,
+                "-offset_x",
+                str(monitor.x),
+                "-offset_y",
+                str(monitor.y),
+                "-video_size",
+                f"{monitor.width}x{monitor.height}",
                 "-i",
-                f"audio={audio_device}",
+                "desktop",
             ]
         )
+        if audio_device:
+            cmd.extend(["-f", "dshow", "-i", f"audio={audio_device}"])
+
     cmd.extend(
         [
             "-c:v",
@@ -202,6 +306,7 @@ class VideoRecorder:
         popen_factory=None,
         encrypt_at_rest: bool = False,
         cipher: CaptureCipher | None = None,
+        backend: str | None = None,
     ) -> None:
         self.monitors = monitors
         self.folder = folder
@@ -211,6 +316,9 @@ class VideoRecorder:
         self._popen_factory = popen_factory or subprocess.Popen
         self._encrypt_at_rest = encrypt_at_rest
         self._cipher = cipher
+        # Resolve the capture backend once. Explicit ``backend`` wins (tests);
+        # otherwise consult config + the cached ddagrab probe.
+        self.backend = backend or select_backend(capture_cfg, binary)
         self._procs: list[RecorderProcess] = []
         self._started_at: datetime | None = None
 
@@ -231,7 +339,8 @@ class VideoRecorder:
             raise RuntimeError(f"FFmpeg binary {self.binary!r} not found on PATH")
         self.folder.mkdir(parents=True, exist_ok=True)
         self._started_at = datetime.now()
-        for monitor in self.monitors:
+        log.info(f"VideoRecorder starting with backend={self.backend!r}")
+        for output_idx, monitor in enumerate(self.monitors):
             output = self.folder / f"monitor-{monitor.index}.mp4"
             args = build_ffmpeg_command(
                 monitor,
@@ -239,6 +348,8 @@ class VideoRecorder:
                 capture_cfg=self.capture_cfg,
                 audio_device=self.audio_device,
                 binary=self.binary,
+                backend=self.backend,
+                output_idx=output_idx,
             )
             proc = self._popen_factory(
                 args,

@@ -83,6 +83,7 @@ def test_recorder_starts_one_process_per_monitor(tmp_path: Path) -> None:
         folder=tmp_path / "rec",
         capture_cfg=CaptureConfig(),
         popen_factory=_FakePopen,
+        backend="gdigrab",
     )
     rec.start()
     assert len(rec.outputs) == 2
@@ -105,6 +106,7 @@ def test_recorder_uses_devnull_for_stderr(tmp_path: Path) -> None:
         folder=tmp_path / "rec",
         capture_cfg=CaptureConfig(),
         popen_factory=factory,
+        backend="gdigrab",
     )
     rec.start()
     rec.stop()
@@ -126,6 +128,7 @@ def test_recorder_stop_sends_q_to_stdin(tmp_path: Path) -> None:
         folder=tmp_path / "rec",
         capture_cfg=CaptureConfig(),
         popen_factory=factory,
+        backend="gdigrab",
     )
     rec.start()
     rec.stop()

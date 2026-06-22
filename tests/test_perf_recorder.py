@@ -76,6 +76,7 @@ def test_video_recorder_start_stop_benchmark(tmp_path: Path, benchmark) -> None:
             folder=tmp_path / "rec",
             capture_cfg=CaptureConfig(),
             popen_factory=_FakePopen,
+            backend="gdigrab",
         )
         recorder.start()
         files = recorder.stop()

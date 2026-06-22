@@ -93,6 +93,24 @@ This was a real bug (R2 in v0.3.1): ffmpeg's stderr pipe filled up after
 still see this on `main`, capture `rin.log` while reproducing and open
 a bug.
 
+### The mouse cursor flickers while recording
+
+The legacy `gdigrab` grabber uses GDI `BitBlt`, which races with the way
+Windows composites the hardware cursor — so the live cursor flickers on
+screen while a recording is running. RIN spawns one grabber per monitor,
+which makes it more noticeable on multi-monitor setups.
+
+**Fix (v1.2.0+):** RIN now prefers the `ddagrab` backend (Desktop
+Duplication API), which is GPU-accelerated and draws the cursor *without*
+flicker. With **Settings → Capture → Recording backend = auto** (the
+default) RIN uses ddagrab automatically when it can.
+
+`ddagrab` needs ffmpeg 6.1+ **and** a real GPU on a local console
+session — it does **not** work over RDP or on GPU-less VMs. In those
+environments RIN falls back to `gdigrab` and the flicker returns. To stop
+it there, turn off **Settings → Capture → Capture the mouse cursor**
+(`draw_cursor=False`); the recording then has no cursor but no flicker.
+
 ### Recording stops with a `BrokenPipeError` on RDP
 
 Specific to `gdigrab` over RDP. We catch `BrokenPipeError, ValueError,

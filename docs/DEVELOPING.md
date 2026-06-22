@@ -144,7 +144,8 @@ Why things are the way they are. Verify each at the cited file.
 | **faster-whisper small** (default) | int8 quantized; runs on CPU at real-time-ish speeds. User can change to large-v3 in Settings → Analysis. | `src/rin/analysis/transcribe.py` |
 | **RapidOCR ONNX** | Bundled ONNX models, no native install, MIT/Apache | `src/rin/analysis/ocr.py` |
 | **SQLAlchemy 2.0 + Alembic-less migrations** | Migrations are rare; we track `PRAGMA user_version` manually | `src/rin/storage/migrations.py` |
-| **`ffmpeg` invoked as subprocess** | Long recordings work best with ffmpeg's own gdigrab+dshow muxing; we send `q` for graceful stop | `src/rin/capture/recorder.py` |
+| **`ffmpeg` invoked as subprocess** | Long recordings work best with ffmpeg's own gdigrab/ddagrab + dshow muxing; we send `q` for graceful stop | `src/rin/capture/recorder.py` |
+| **`ddagrab` capture backend, `gdigrab` fallback** (v1.2.0) | gdigrab's GDI BitBlt races with cursor compositing → the live mouse cursor flickers while recording. `ddagrab` (Desktop Duplication API) is GPU-accelerated and composites the cursor without flicker, but **fails over RDP / on GPU-less VMs**, so `select_backend` probes it once (cached) and falls back to gdigrab. `draw_cursor=False` lets the gdigrab path drop the cursor to stop flicker. | `src/rin/capture/recorder.py`, `src/rin/config.py:CaptureConfig` |
 | **`stderr=DEVNULL` on ffmpeg** | Without this, a long recording fills the 64 KB Windows pipe buffer and deadlocks ffmpeg. Reviewed in v0.3.1. | `src/rin/capture/recorder.py` |
 | **Subprocesses use `encoding="utf-8", errors="replace"`** | Windows default is cp1252, blows up on Chinese / emoji ffmpeg output. Reviewed in v0.1.1. | `src/rin/llm/copilot_cli.py`, `src/rin/analysis/keyframes.py` |
 | **APScheduler `BackgroundScheduler` + `threading.Lock`** | Manual "Analyze now" can race with the hourly tick; non-blocking lock skips duplicates. Reviewed in v0.3.1. | `src/rin/analysis/scheduler.py` |

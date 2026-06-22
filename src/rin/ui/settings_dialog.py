@@ -382,6 +382,8 @@ class SettingsDialog(QDialog):
         c.storage.min_free_space_gb = self._min_space.value()
 
         c.capture.audio_device = self._audio_combo.currentText().strip() or None
+        c.capture.video_backend = self._video_backend_combo.currentText().strip() or "auto"
+        c.capture.draw_cursor = self._draw_cursor_check.isChecked()
         c.capture.audio_sample_rate = self._sample_rate_spin.value()
         c.capture.audio_channels = self._channels_spin.value()
         c.capture.enable_quick_note = self._quick_note_enabled.isChecked()
@@ -1108,6 +1110,32 @@ class SettingsDialog(QDialog):
         form = self._form()
         page.setLayout(form)
 
+        # --- recording backend (v1.2.0) --------------------------------------
+        self._video_backend_combo = QComboBox()
+        self._video_backend_combo.addItems(["auto", "ddagrab", "gdigrab"])
+        self._fixed(self._video_backend_combo, _W_NUMBER)
+        self._video_backend_combo.setToolTip(
+            "auto: use ddagrab when available, else gdigrab.\n"
+            "ddagrab: GPU-accelerated, no cursor flicker (needs a real GPU + "
+            "local session; NOT available over RDP / GPU-less VMs).\n"
+            "gdigrab: works everywhere, but the live cursor flickers while "
+            "recording when 'Capture mouse cursor' is on."
+        )
+        form.addRow(self._label("Recording backend"), self._video_backend_combo)
+        form.addRow(self._hint(
+            "ddagrab removes the mouse-cursor flicker seen during recording. "
+            "'auto' falls back to gdigrab automatically when ddagrab can't run."
+        ))
+
+        self._draw_cursor_check = QCheckBox("Capture the mouse cursor in recordings")
+        self._draw_cursor_check.setToolTip(
+            "On the gdigrab fallback, turning this off is the only way to stop "
+            "the on-screen cursor flicker (the recording will have no cursor)."
+        )
+        form.addRow(self._draw_cursor_check)
+
+        self._section_spacer(form)
+
         self._audio_combo = QComboBox()
         self._audio_combo.setEditable(True)
         self._fixed(self._audio_combo, _W_URL)
@@ -1406,6 +1434,8 @@ class SettingsDialog(QDialog):
         quick_note_device = c.capture.quick_note_audio_device or ""
         self._apply_audio_devices([], initial=initial_device, quick_note_initial=quick_note_device)
         self._refresh_audio_devices()
+        self._video_backend_combo.setCurrentText(getattr(c.capture, "video_backend", "auto"))
+        self._draw_cursor_check.setChecked(getattr(c.capture, "draw_cursor", True))
         self._sample_rate_spin.setValue(c.capture.audio_sample_rate)
         self._channels_spin.setValue(c.capture.audio_channels)
         self._quick_note_enabled.setChecked(c.capture.enable_quick_note)

@@ -2,6 +2,40 @@
 
 All notable changes to RIN — Record It Now.
 
+## v1.2.0 — Flicker-free recording (ddagrab) (2026-06-22)
+
+Recording no longer makes the mouse cursor flicker on screen. No
+data-format or config changes — drop-in upgrade.
+
+### Added
+
+- **`ddagrab` capture backend (Desktop Duplication API).** The legacy
+  `gdigrab` grabber uses GDI `BitBlt`, which races with Windows' cursor
+  compositing, so the live mouse cursor flickered while recording (worse
+  with one grabber per monitor). RIN now prefers `ddagrab`, which is
+  GPU-accelerated and draws the cursor **without flicker** while keeping
+  it in the recording. Capture is still encoded with software libx264 via
+  `hwdownload`, so there's no new hardware-encoder dependency.
+- **Automatic fallback + new Capture settings.** `ddagrab` needs ffmpeg
+  6.1+ and a real GPU on a local console — it can't run over RDP or on
+  GPU-less VMs. RIN probes it once (cached) and falls back to `gdigrab`
+  automatically. Settings → Capture adds **Recording backend**
+  (`auto` / `ddagrab` / `gdigrab`) and **Capture the mouse cursor**; on
+  the gdigrab fallback, turning the cursor off is the way to stop the
+  flicker there too.
+
+### Tests
+
+- +14 tests (`test_capture_recorder_backend.py`): ddagrab/gdigrab command
+  construction, the `draw_cursor` toggle, the cached ddagrab probe, and
+  backend selection (auto / forced / RDP-fallback).
+
+### Note
+
+- The real `ddagrab` capture path requires a GPU + local desktop, so it
+  can't be exercised in headless CI; CI covers command construction and
+  selection logic. Verified shapes against ffmpeg 8.1.1.
+
 ## v1.1.0 — Unified Search & Ask (2026-06-16)
 
 The **Search & Ask** window is now a single ChatGPT / Gemini-style
