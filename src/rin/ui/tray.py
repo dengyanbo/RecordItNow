@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 import webbrowser
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QObject, QPoint, QRunnable, Qt, QThreadPool, QTimer, Signal
 from PySide6.QtGui import QAction
@@ -29,10 +30,15 @@ from ..utils.updater import UpdateInfo
 from .icon import PulseIconAnimator, make_icon
 from .notifications import attach as attach_tray_notifier
 from .notifications import notify
-from .reports_window import ReportsWindow
-from .search_window import SearchWindow
-from .settings_dialog import SettingsDialog
-from .theme import Theme, resolve, with_accent
+from .theme import Theme, current_theme
+
+if TYPE_CHECKING:
+    # These windows are heavy (settings_dialog + poi_tab pull in a large UI
+    # tree). They're only needed when the user actually opens them, so we
+    # import them lazily inside the open-handlers to keep tray startup fast.
+    from .reports_window import ReportsWindow
+    from .search_window import SearchWindow
+    from .settings_dialog import SettingsDialog
 
 log = get_logger(__name__)
 
@@ -295,7 +301,7 @@ class TrayApp(QObject):
         self._pool.start(_Task(_do))
 
     def _current_theme(self) -> Theme:
-        return with_accent(resolve(self.config.ui.theme), self.config.ui.accent)
+        return current_theme(self.config)
 
     def _on_record_started(self) -> None:
         if self.input_manager.is_paused():
@@ -514,6 +520,8 @@ class TrayApp(QObject):
 
     def _open_settings(self) -> None:
         if self._settings_dialog is None:
+            from .settings_dialog import SettingsDialog
+
             self._settings_dialog = SettingsDialog(
                 self.config,
                 learn_callback=self._begin_learn_mode,
@@ -526,12 +534,16 @@ class TrayApp(QObject):
 
     def _open_reports(self) -> None:
         if self._reports_window is None:
+            from .reports_window import ReportsWindow
+
             self._reports_window = ReportsWindow(self.config)
         self._reports_window.show()
         self._reports_window.raise_()
 
     def _open_search(self) -> None:
         if self._search_window is None:
+            from .search_window import SearchWindow
+
             self._search_window = SearchWindow(self.config)
         self._search_window.show()
         self._search_window.raise_()

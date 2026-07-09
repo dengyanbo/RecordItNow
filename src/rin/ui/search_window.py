@@ -35,7 +35,7 @@ from ..rag.search import SearchHit, search
 from ..utils.logging import get_logger
 from .icon import tinted_icon
 from .progress import Spinner
-from .theme import LIGHT, resolve, with_accent
+from .theme import LIGHT, current_theme
 
 log = get_logger(__name__)
 
@@ -350,7 +350,7 @@ class SearchWindow(QWidget):
 
     def _theme(self):
         try:
-            return with_accent(resolve(self.config.ui.theme), self.config.ui.accent)
+            return current_theme(self.config)
         except Exception:
             return LIGHT
 

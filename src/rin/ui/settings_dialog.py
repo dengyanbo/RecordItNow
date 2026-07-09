@@ -53,7 +53,7 @@ from ..utils import updater
 from ..utils.logging import get_logger
 from ..utils.updater import UpdateInfo
 from .progress import Spinner
-from .theme import LIGHT, resolve, with_accent
+from .theme import LIGHT, current_theme
 
 log = get_logger(__name__)
 
@@ -159,7 +159,7 @@ class SettingsDialog(QDialog):
         # Resolve the active theme up-front so we can tint nav icons to
         # match the muted text colour (Fluent's "neutralForeground2").
         try:
-            theme = with_accent(resolve(config.ui.theme), config.ui.accent)
+            theme = current_theme(config)
         except Exception:
             theme = LIGHT
         self._nav_color = theme.text_muted
@@ -1545,7 +1545,7 @@ class SettingsDialog(QDialog):
         quick_note_current = self._quick_note_audio_combo.currentText().strip()
         self._refresh_audio_button.setVisible(False)
         self._refresh_audio_spinner.set_accent(
-            with_accent(resolve(self._config.ui.theme), self._config.ui.accent).accent
+            current_theme(self._config).accent
         )
         self._refresh_audio_spinner.show()
         self._refresh_audio_spinner.start()

@@ -12,11 +12,11 @@ icon, used by both QIcon factories and stylesheets that need
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .icon import icon_size_for, make_icon, make_recording_icon, tinted_icon
 from .notifications import notify
 from .progress import BusyOverlay, Spinner
-from .settings_dialog import SettingsDialog
 from .style import palette_to_qss
 from .theme import (
     ACCENTS,
@@ -24,13 +24,33 @@ from .theme import (
     LIGHT,
     Theme,
     contrast_ratio,
+    current_theme,
     resolve,
     system_theme,
     with_accent,
 )
 from .tray import TrayApp
 
+if TYPE_CHECKING:
+    from .settings_dialog import SettingsDialog
+
 _ASSETS_DIR = Path(__file__).resolve().parent / "assets"
+
+
+def __getattr__(name: str):
+    """Lazily resolve heavy re-exports so they stay off the startup path.
+
+    ``SettingsDialog`` (and its large tab/PoI tree) is only needed when the
+    user opens Settings; importing it here would load ~2500 LOC of UI at boot.
+    ``from rin.ui import SettingsDialog`` still works — attribute access
+    triggers the import on demand (PEP 562).
+    """
+
+    if name == "SettingsDialog":
+        from .settings_dialog import SettingsDialog
+
+        return SettingsDialog
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def icon_path(name: str) -> Path:
@@ -55,6 +75,7 @@ __all__ = [
     "Theme",
     "TrayApp",
     "contrast_ratio",
+    "current_theme",
     "icon_path",
     "icon_size_for",
     "make_icon",

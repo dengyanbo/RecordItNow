@@ -15,7 +15,7 @@ Qt's QSS engine.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Literal
+from typing import Any, Literal
 
 from ..utils import platform_compat
 
@@ -217,6 +217,18 @@ def with_accent(theme: Theme, accent_name: str) -> Theme:
     )
 
 
+def current_theme(config: Any) -> Theme:
+    """Resolve the active accented :class:`Theme` for a ``RinConfig``.
+
+    Convenience wrapper for the ``with_accent(resolve(cfg.ui.theme),
+    cfg.ui.accent)`` pattern used across every UI surface. ``config`` is any
+    object exposing ``.ui.theme`` and ``.ui.accent`` (a :class:`RinConfig`).
+    """
+
+    ui = config.ui
+    return with_accent(resolve(ui.theme), ui.accent)
+
+
 def _mix(fg: str, bg: str, bg_amount: float) -> str:
     """Linear blend of two ``#rrggbb`` colors. ``bg_amount`` 0..1."""
 
@@ -276,6 +288,7 @@ __all__ = [
     "ThemeMode",
     "ThemeName",
     "contrast_ratio",
+    "current_theme",
     "relative_luminance",
     "resolve",
     "system_theme",

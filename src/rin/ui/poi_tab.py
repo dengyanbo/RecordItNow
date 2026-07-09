@@ -39,7 +39,7 @@ from ..storage import session
 from ..storage.models import Analysis, Capture, PoICandidate
 from ..utils.logging import get_logger
 from .progress import Spinner
-from .theme import resolve, with_accent
+from .theme import current_theme
 
 log = get_logger(__name__)
 
@@ -711,7 +711,7 @@ class TopicsAndPoIsTab(QWidget):
             self._in_memory_topics = []
 
     def _theme(self):
-        return with_accent(resolve(self._config.ui.theme), self._config.ui.accent)
+        return current_theme(self._config)
 
     def _reload_my_pois_table(self) -> None:
         self._my_pois_table.clearContents()

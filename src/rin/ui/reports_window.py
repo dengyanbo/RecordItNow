@@ -42,7 +42,7 @@ from ..storage.models import Bucket, Report
 from ..utils.logging import get_logger
 from .icon import tinted_icon
 from .progress import BusyOverlay
-from .theme import LIGHT, Theme, resolve, with_accent
+from .theme import LIGHT, Theme, current_theme
 
 log = get_logger(__name__)
 
@@ -372,7 +372,7 @@ class ReportsWindow(QWidget):
 
     def _theme(self) -> Theme:
         try:
-            return with_accent(resolve(self.config.ui.theme), self.config.ui.accent)
+            return current_theme(self.config)
         except Exception:
             return LIGHT
 

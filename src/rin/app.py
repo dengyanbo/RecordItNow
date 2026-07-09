@@ -39,10 +39,9 @@ def build_app(cfg: RinConfig | None = None) -> QApplication:
 def apply_theme(app: QApplication, cfg: RinConfig) -> None:
     """Render and install the current theme's stylesheet on ``app``."""
 
-    from .ui import palette_to_qss, resolve, with_accent
+    from .ui import current_theme, palette_to_qss
 
-    theme = resolve(cfg.ui.theme)
-    theme = with_accent(theme, cfg.ui.accent)
+    theme = current_theme(cfg)
     app.setStyleSheet(palette_to_qss(theme, density=cfg.ui.density))
     app.setFont(QFont("Segoe UI Variable", theme.font_size_pt))
     log.debug(

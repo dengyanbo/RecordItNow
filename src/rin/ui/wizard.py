@@ -22,7 +22,7 @@ from ..config import RinConfig, TriggerBinding
 from ..utils.logging import get_logger
 from .icon import tinted_icon
 from .style import palette_to_qss
-from .theme import resolve, with_accent
+from .theme import current_theme
 
 log = get_logger(__name__)
 
@@ -48,7 +48,7 @@ class FirstRunWizard(QWizard):
         self.setWizardStyle(QWizard.WizardStyle.ModernStyle)
         self.setOption(QWizard.WizardOption.NoBackButtonOnStartPage, True)
 
-        theme = with_accent(resolve(cfg.ui.theme), cfg.ui.accent)
+        theme = current_theme(cfg)
         self.setStyleSheet(palette_to_qss(theme, density=cfg.ui.density))
         self._accent = theme.accent
 
