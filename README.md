@@ -12,7 +12,7 @@
 A Windows tray app that **captures your screen with a single button, then
 lets an LLM make it searchable**.
 
-- **Tap** your trigger → full-resolution PNG of every monitor + thumbnail
+- **Tap** your trigger → near-instant full-resolution capture of every monitor (fast JPEG by default, lossless PNG optional) + thumbnail
 - **Hold** (> 500 ms) → MP4 + audio recording until you release
 - During idle / off-hours, RIN runs **OCR + Whisper + a vision LLM** on each capture and indexes the summaries into a local vector store
 - **🔎 Search & Ask** in one conversation — flip the **Search / Ask** toggle to find captures semantically *or* ask in natural language (*"what was that error I saw on Tuesday?"*); the RAG agent answers with `cap-N` citations
@@ -83,7 +83,7 @@ Your captures, database, logs and downloaded models live in
 | Step | Action | What happens |
 | --- | --- | --- |
 | 1 | **Settings → Trigger → Learn new button**, press any key (e.g. F12) | Binding saved to `config.toml` |
-| 2 | Tap that key from anywhere in Windows | Multi-monitor PNG + 240×135 thumbnail saved |
+| 2 | Tap that key from anywhere in Windows | Multi-monitor JPEG (or PNG) + 240×135 thumbnail saved — feedback is near-instant |
 | 3 | Hold the key > 500 ms | MP4 video starts; red dot pulses on the tray icon. Release to stop. |
 | 4 | Tray → 🧠 *Analyze now* | OCR + LLM summarise every recent capture; toasts report progress |
 | 5 | Tray → 🔎 *Search…* | One conversation box with a **Search / Ask** toggle — *Search* returns semantic hit cards inline, *Ask* gets a RAG answer with `cap-N` citations |
@@ -98,7 +98,7 @@ Your captures, database, logs and downloaded models live in
 | Area | Capabilities |
 | --- | --- |
 | **Trigger** | Bind any keyboard key, mouse button, or HID / Bluetooth button via "learn next press" |
-| **Capture** | Multi-monitor PNG + thumbnail JPG sidecar, per-monitor MP4 video, optional DirectShow audio mux, optional 5-second voice quick-note |
+| **Capture** | Near-instant multi-monitor screenshots (fast JPEG default, lossless PNG optional) + thumbnail JPG sidecar, per-monitor MP4 video (flicker-free `ddagrab`, `gdigrab` fallback), optional DirectShow audio mux, optional 5-second voice quick-note |
 | **Storage** | SQLite (WAL + foreign keys), ChromaDB for vectors, FTS5 for report search, dated file tree, configurable retention |
 | **LLM providers** | GitHub Copilot CLI (default, no API key) · OpenAI · Azure OpenAI |
 | **Analysis** | Hourly background job gated by working hours OR idle, with OCR + Whisper + vision LLM. Languages configurable. |
@@ -212,8 +212,8 @@ Want sequence diagrams + per-module rationale? See
 
 ## Project status
 
-- Current: **v1.2.1** (released 2026-06-22)
-- **584 / 584 pytest** pass · ruff clean
+- Current: **v1.4.0** (released 2026-07-09)
+- **588 / 588 pytest** pass · ruff clean
 - CI green on Python 3.11 + 3.12 on `windows-latest`
 - Full release history: [`docs/CHANGELOG.md`](docs/CHANGELOG.md)
 - Want to contribute or extend? Read [`docs/DEVELOPING.md`](docs/DEVELOPING.md)

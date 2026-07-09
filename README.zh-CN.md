@@ -11,7 +11,7 @@
 
 一个 Windows 托盘应用：**按一个键截屏，然后让 LLM 把屏幕活动变成可搜索的内容**。
 
-- **轻点**触发键 → 所有屏幕的全分辨率 PNG + 缩略图
+- **轻点**触发键 → 近乎瞬时地全分辨率捕获所有屏幕（默认快速 JPEG，可选无损 PNG）+ 缩略图
 - **长按** (> 500 ms) → MP4 + 音频录制，直到松手
 - 空闲时间 / 非工作时间，RIN 自动 **OCR + Whisper + 视觉 LLM** 分析每次 capture，写入本地向量库
 - **🔎 Search & Ask** 单一对话框 —— 用 **Search / Ask** 开关切换：语义搜索 capture，或自然语言提问（比如 *"周二我看到的那个 error 是什么？"*），RAG agent 带 `cap-N` 引用回答
@@ -82,7 +82,7 @@
 | 步 | 操作 | 发生什么 |
 | --- | --- | --- |
 | 1 | **Settings → Trigger → Learn new button**，按任意键（比如 F12） | 绑定保存到 `config.toml` |
-| 2 | 在 Windows 任何地方按这个键 | 所有屏幕的 PNG + 240×135 缩略图保存 |
+| 2 | 在 Windows 任何地方按这个键 | 多屏 JPEG（或 PNG）+ 240×135 缩略图保存——反馈近乎瞬时 |
 | 3 | 按住超过 500 ms | 开始录 MP4，托盘图标红点闪烁。松手停止。 |
 | 4 | 托盘 → 🧠 *Analyze now* | OCR + LLM 总结每个未分析的 capture，toast 报告进度 |
 | 5 | 托盘 → 🔎 *Search…* | 单一对话框，用 **Search / Ask** 开关切换：*Search* 在对话里返回语义搜索结果卡片，*Ask* 让 RAG agent 带 `cap-N` 引用回答 |
@@ -97,7 +97,7 @@
 | 领域 | 能力 |
 | --- | --- |
 | **触发** | 绑定任意键盘 / 鼠标按钮 / HID / 蓝牙按钮，通过"按下你想要的"流程学习 |
-| **捕获** | 多屏 PNG + 缩略图 JPG sidecar，分屏 MP4 视频，可选 DirectShow 音频混流，可选 5 秒语音备注 |
+| **捕获** | 近乎瞬时的多屏截图（默认快速 JPEG，可选无损 PNG）+ 缩略图 JPG sidecar，分屏 MP4 视频（无闪烁 `ddagrab`，`gdigrab` 回退），可选 DirectShow 音频混流，可选 5 秒语音备注 |
 | **存储** | SQLite (WAL + 外键)、ChromaDB 向量、FTS5 报告搜索、按日期分文件夹、可配置保留期 |
 | **LLM 后端** | GitHub Copilot CLI（默认，免 API key）· OpenAI · Azure OpenAI |
 | **分析** | 每小时后台任务，仅在非工作时间或 idle 时跑；OCR + Whisper + 视觉 LLM。语言可配置。 |
@@ -202,8 +202,8 @@ PoI 不是单纯的标签——它驱动整条分析和搜索管线：
 
 ## 项目状态
 
-- 当前版本：**v1.2.1**（2026-06-22 发布）
-- **584 / 584 pytest 通过** · ruff 清洁
+- 当前版本：**v1.4.0**（2026-07-09 发布）
+- **588 / 588 pytest 通过** · ruff 清洁
 - CI 在 Windows + Python 3.11 / 3.12 上绿
 - 完整发布历史：[`docs/CHANGELOG.md`](docs/CHANGELOG.md)
 - 想贡献或扩展？读 [`docs/DEVELOPING.md`](docs/DEVELOPING.md)
