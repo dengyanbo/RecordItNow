@@ -33,49 +33,38 @@ def test_unset_binding_matches_nothing() -> None:
     assert not binding_matches_event(TriggerBinding(), _make_event())
 
 
-def test_binding_matches_hid_by_vid_pid() -> None:
-    binding = TriggerBinding(source="hid", vendor_id=0x1234, product_id=0x5678)
-    ev = _make_event(
-        source="hid",
-        identifier="1234:5678",
-        vendor_id=0x1234,
-        product_id=0x5678,
-        usage_page=12,
-        usage=224,
-    )
-    assert binding_matches_event(binding, ev)
-    # Different vendor → no match.
-    assert not binding_matches_event(
-        binding, _make_event(source="hid", identifier="9999:5678", vendor_id=0x9999, product_id=0x5678)
-    )
-
-
-def test_binding_matches_hid_optional_usage() -> None:
-    binding = TriggerBinding(
-        source="hid",
-        vendor_id=0x1234,
-        product_id=0x5678,
-        usage_page=12,
-        usage=224,
-    )
-    ev = _make_event(
-        source="hid",
-        identifier="1234:5678",
-        vendor_id=0x1234,
-        product_id=0x5678,
-        usage_page=12,
-        usage=224,
-    )
-    assert binding_matches_event(binding, ev)
-    # Mismatched usage → no match.
-    assert not binding_matches_event(
-        binding,
-        _make_event(
-            source="hid",
-            identifier="1234:5678",
-            vendor_id=0x1234,
-            product_id=0x5678,
-            usage_page=12,
-            usage=99,
+def test_binding_matches_hid_optional_fields() -> None:
+    cases = [
+        (
+            TriggerBinding(source="hid", vendor_id=0x1234, product_id=0x5678),
+            _make_event(source="hid", identifier="9999:5678", vendor_id=0x9999, product_id=0x5678),
         ),
+        (
+            TriggerBinding(
+                source="hid",
+                vendor_id=0x1234,
+                product_id=0x5678,
+                usage_page=12,
+                usage=224,
+            ),
+            _make_event(
+                source="hid",
+                identifier="1234:5678",
+                vendor_id=0x1234,
+                product_id=0x5678,
+                usage_page=12,
+                usage=99,
+            ),
+        ),
+    ]
+    ev = _make_event(
+        source="hid",
+        identifier="1234:5678",
+        vendor_id=0x1234,
+        product_id=0x5678,
+        usage_page=12,
+        usage=224,
     )
+    for binding, mismatched_event in cases:
+        assert binding_matches_event(binding, ev)
+        assert not binding_matches_event(binding, mismatched_event)
