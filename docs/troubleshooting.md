@@ -70,7 +70,26 @@ by the OS when the process dies — you don't need to delete it manually.
 
 ## Capture
 
-### Screenshot succeeds but the PNG is blank or 0×0
+### A tap-to-screenshot feels laggy / slow
+
+Two settings govern how instant a button-press capture feels:
+
+- **`RinConfig.capture.screenshot_format`** (Settings → Capture →
+  *Screenshot format*). The default is **`jpeg`**, which encodes a 4K
+  frame in ~30–50 ms regardless of what's on screen. `png` is lossless
+  but its encode time swings from ~110 ms on a simple UI to **~850 ms on
+  a busy or photographic screen** — and that scales with the number of
+  monitors, so a dual-4K PNG capture can take ~1.8 s. Prefer `jpeg`
+  unless you specifically need pixel-lossless captures.
+- The on-screen **"Screenshot captured"** toast now fires the instant the
+  frame is grabbed (before encoding), so the tap feels immediate even
+  while the file finishes writing in the background.
+
+If captures still feel slow with `jpeg`, check `rin.log` for the
+`Screenshot captured: … [jpeg] …` line — the reported time is the full
+grab+encode+thumbnail+DB cost per capture.
+
+### Screenshot succeeds but the image is blank or 0×0
 
 Most often happens on **Remote Desktop sessions** with multiple
 monitors. Windows reports the RDP "client" monitor at 0×0 to `mss`. We

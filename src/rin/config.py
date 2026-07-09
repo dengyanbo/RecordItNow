@@ -104,7 +104,13 @@ class PrivacyConfig(BaseModel):
 
 
 class CaptureConfig(BaseModel):
-    screenshot_format: Literal["png"] = "png"
+    # Screenshot encoding. "jpeg" (default) keeps button-press captures
+    # near-instant: JPEG encodes a 4K frame in ~30-50ms regardless of screen
+    # content, whereas PNG (lossless) swings from ~110ms on a simple UI to
+    # ~850ms on a busy/photographic screen — the dominant capture latency.
+    # Set to "png" for lossless captures at the cost of that latency.
+    screenshot_format: Literal["png", "jpeg"] = "jpeg"
+    screenshot_jpeg_quality: int = 85
     video_container: Literal["mp4"] = "mp4"
     video_codec: Literal["h264"] = "h264"
     audio_sample_rate: int = 48000

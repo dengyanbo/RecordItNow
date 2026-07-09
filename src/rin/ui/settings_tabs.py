@@ -707,6 +707,24 @@ class _SettingsTabsMixin:
         form = self._form()
         page.setLayout(form)
 
+        # --- screenshot encoding (v1.4.0 latency fix) ------------------------
+        self._screenshot_format_combo = QComboBox()
+        self._screenshot_format_combo.addItems(["jpeg", "png"])
+        self._fixed(self._screenshot_format_combo, _W_NUMBER)
+        self._screenshot_format_combo.setToolTip(
+            "jpeg: fast encode (~30-50 ms per 4K monitor, independent of "
+            "screen content), lossy — keeps button-press captures near-instant.\n"
+            "png: lossless, but encoding is much slower on busy/photographic "
+            "screens (up to ~1 s per 4K monitor), adding capture latency."
+        )
+        form.addRow(self._label("Screenshot format"), self._screenshot_format_combo)
+        form.addRow(self._hint(
+            "JPEG keeps a tap-to-screenshot feeling instant. Choose PNG only "
+            "if you need pixel-lossless captures and can accept the latency."
+        ))
+
+        self._section_spacer(form)
+
         # --- recording backend (v1.2.0) --------------------------------------
         self._video_backend_combo = QComboBox()
         self._video_backend_combo.addItems(["auto", "ddagrab", "gdigrab"])

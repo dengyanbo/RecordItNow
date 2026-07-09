@@ -76,6 +76,13 @@ class TrayApp(QObject):
     # "already up to date" or "request failed silently".
     _update_check_completed = Signal(object, bool)
 
+    # Queued so capture worker threads can surface toasts on the Qt main
+    # thread (QSystemTrayIcon.showMessage is main-thread-only). Payload:
+    # (title, body, level). Used for the instant "Screenshot captured"
+    # feedback (fired right after the grab, before the encode) and for
+    # capture-skip notifications.
+    _capture_toast = Signal(str, str, str)
+
     def __init__(
         self,
         config: RinConfig,
@@ -125,6 +132,9 @@ class TrayApp(QObject):
         )
         self._update_check_completed.connect(
             self._on_update_check_completed, Qt.ConnectionType.QueuedConnection
+        )
+        self._capture_toast.connect(
+            self._on_capture_toast, Qt.ConnectionType.QueuedConnection
         )
         self.analysis_scheduler.set_progress_callback(
             self._analysis_progress_received.emit,
@@ -268,33 +278,46 @@ class TrayApp(QObject):
         "failed": ("Capture failed", "warning"),
     }
 
+    def _on_capture_toast(self, title: str, body: str, level: str) -> None:
+        """Main-thread slot: show a capture toast. Receives ``_capture_toast``
+        emissions marshalled off the capture worker threads."""
+
+        notify(title, body, level=level)
+
     def _notify_skip(self, fallback_title: str) -> None:
-        """Render a context-appropriate toast from ``CaptureService.last_skip()``.
+        """Surface a context-appropriate toast from ``CaptureService.last_skip()``.
 
         Reads the service's last-skip record (set inside the service's own
         lock right before it returned ``None``/``False``) so users see
         e.g. *Captures paused — Resumes at 17:06* rather than a generic
-        *Capture failed*.
+        *Capture failed*. Emitted via the queued ``_capture_toast`` signal
+        so it is safe to call from a worker thread.
         """
 
         skip = self.capture_service.last_skip()
         if skip is None:
-            notify(fallback_title, "Check the log for details.", level="warning")
+            self._capture_toast.emit(fallback_title, "Check the log for details.", "warning")
             return
         title, level = self._SKIP_NOTIFICATION.get(
             skip.reason, (fallback_title, "warning")
         )
-        notify(title, skip.detail, level=level)
+        self._capture_toast.emit(title, skip.detail, level)
 
     def _on_shot_requested(self) -> None:
         if self.input_manager.is_paused():
             return
 
         def _do() -> None:
-            cap_id = self.capture_service.take_screenshot()
+            # Feedback fires from on_grabbed — right after the fast grab and
+            # BEFORE the (slow, content-dependent) encode — so a tap feels
+            # instant regardless of screen content or monitor count.
+            cap_id = self.capture_service.take_screenshot(
+                on_grabbed=lambda: self._capture_toast.emit(
+                    "Screenshot captured", "", "info"
+                )
+            )
             if cap_id is not None:
                 self.shot_captured.emit(cap_id)
-                notify("Screenshot saved", f"capture_id={cap_id}")
             else:
                 self._notify_skip("Screenshot failed")
 

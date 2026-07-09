@@ -89,7 +89,7 @@ class CaptureService:
 
     # --- screenshot ---------------------------------------------------------------
 
-    def take_screenshot(self) -> int | None:
+    def take_screenshot(self, *, on_grabbed=None) -> int | None:
         with self._lock:
             self._last_skip = None
             if not self._guard_disk():
@@ -116,6 +116,9 @@ class CaptureService:
                     monitors=self._monitors,
                     encrypt_at_rest=cipher is not None,
                     cipher=cipher,
+                    image_format=self.config.capture.screenshot_format,
+                    jpeg_quality=self.config.capture.screenshot_jpeg_quality,
+                    on_grabbed=on_grabbed,
                 )
             except Exception as exc:
                 self._last_skip = SkipInfo("failed", str(exc)[:120])

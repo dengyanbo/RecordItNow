@@ -278,6 +278,7 @@ class SettingsDialog(_SettingsTabsMixin, QDialog):
         c.storage.min_free_space_gb = self._min_space.value()
 
         c.capture.audio_device = self._audio_combo.currentText().strip() or None
+        c.capture.screenshot_format = self._screenshot_format_combo.currentText().strip() or "jpeg"
         c.capture.video_backend = self._video_backend_combo.currentText().strip() or "auto"
         c.capture.draw_cursor = self._draw_cursor_check.isChecked()
         c.capture.audio_sample_rate = self._sample_rate_spin.value()
@@ -433,6 +434,7 @@ class SettingsDialog(_SettingsTabsMixin, QDialog):
         self._apply_audio_devices([], initial=initial_device, quick_note_initial=quick_note_device)
         self._refresh_audio_devices()
         self._video_backend_combo.setCurrentText(getattr(c.capture, "video_backend", "auto"))
+        self._screenshot_format_combo.setCurrentText(getattr(c.capture, "screenshot_format", "jpeg"))
         self._draw_cursor_check.setChecked(getattr(c.capture, "draw_cursor", True))
         self._sample_rate_spin.setValue(c.capture.audio_sample_rate)
         self._channels_spin.setValue(c.capture.audio_channels)

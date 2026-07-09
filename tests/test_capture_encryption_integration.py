@@ -91,12 +91,16 @@ def _service_with_monitors(*, encrypt_at_rest: bool) -> CaptureService:
 def _patch_capture_flow(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("rin.capture.service.is_capture_allowed", lambda _blacklist: True)
 
-    def fake_capture_screenshot(*, monitors=None, encrypt_at_rest=False, cipher=None):
+    def fake_capture_screenshot(*, monitors=None, encrypt_at_rest=False, cipher=None,
+                                image_format="png", jpeg_quality=85, on_grabbed=None):
+        if on_grabbed is not None:
+            on_grabbed()
         return real_capture_screenshot(
             monitors=monitors,
             grabber_factory=lambda: _FakeGrabber(),
             encrypt_at_rest=encrypt_at_rest,
             cipher=cipher,
+            image_format="png",
         )
 
     monkeypatch.setattr("rin.capture.service.capture_screenshot", fake_capture_screenshot)
