@@ -6,7 +6,7 @@ from datetime import datetime, time, timedelta
 from pathlib import Path
 from typing import Literal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from ..analysis import structured as structured_summary
@@ -20,6 +20,7 @@ from ..storage.models import (
     Bucket,
     Capture,
     CaptureBucket,
+    CaptureFile,
     Report,
     ReportText,
 )
@@ -75,7 +76,7 @@ class PoIReportSection:
     narrative: str | None = None
 
 
-def _capture_item_from_capture(capture: Capture) -> CaptureItem:
+def _capture_item_from_capture(capture: Capture, *, monitor_count: int | None = None) -> CaptureItem:
     latest = capture.analyses[-1] if capture.analyses else None
     summary = latest.summary if latest else None
     blocks: dict[str, str] = {}
@@ -88,18 +89,22 @@ def _capture_item_from_capture(capture: Capture) -> CaptureItem:
         kind=capture.kind,
         started_at=capture.started_at,
         duration_ms=capture.duration_ms,
-        monitor_count=len(capture.files),
+        # Prefer a pre-computed count (bulk COUNT query) so callers don't have
+        # to hydrate every CaptureFile row just to take its length.
+        monitor_count=monitor_count if monitor_count is not None else len(capture.files),
         summary=summary,
         poi_blocks=blocks,
     )
 
 
-def _capture_item_for_section(capture: Capture, section_title: str) -> CaptureItem:
+def _capture_item_for_section(
+    capture: Capture, section_title: str, *, monitor_count: int | None = None
+) -> CaptureItem:
     """Like :func:`_capture_item_from_capture` but substitutes the POI-
     specific block for ``summary`` when available, so templates can render
     the topic-specific narrative inside each section without changes."""
 
-    item = _capture_item_from_capture(capture)
+    item = _capture_item_from_capture(capture, monitor_count=monitor_count)
     block = item.poi_blocks.get(section_title.strip().lower())
     if block:
         item.summary = block
@@ -134,6 +139,20 @@ def weekly_period(now: datetime | None = None) -> ReportPeriod:
     return ReportPeriod(kind="weekly", start=start, end=end)
 
 
+def _file_counts(s, cap_ids: list[int]) -> dict[int, int]:
+    """Bulk monitor-file counts keyed by capture_id (one grouped query)."""
+
+    if not cap_ids:
+        return {}
+    return dict(
+        s.execute(
+            select(CaptureFile.capture_id, func.count())
+            .where(CaptureFile.capture_id.in_(cap_ids))
+            .group_by(CaptureFile.capture_id)
+        ).all()
+    )
+
+
 def list_captures_for_period(period: ReportPeriod) -> list[CaptureItem]:
     with session() as s:
         rows = (
@@ -141,12 +160,13 @@ def list_captures_for_period(period: ReportPeriod) -> list[CaptureItem]:
                 select(Capture)
                 .where(Capture.started_at >= period.start, Capture.started_at < period.end)
                 .order_by(Capture.started_at.asc(), Capture.id.asc())
-                .options(selectinload(Capture.analyses), selectinload(Capture.files))
+                .options(selectinload(Capture.analyses))
             )
             .unique()
             .all()
         )
-    return [_capture_item_from_capture(capture) for capture in rows]
+        counts = _file_counts(s, [c.id for c in rows])
+    return [_capture_item_from_capture(c, monitor_count=counts.get(c.id, 0)) for c in rows]
 
 
 def _bucket_status_change(bucket: Bucket, period: ReportPeriod) -> str | None:
@@ -182,8 +202,9 @@ def list_poi_sections_for_period(period: ReportPeriod) -> list[PoIReportSection]
                 Capture.started_at.asc(),
                 Capture.id.asc(),
             )
-            .options(selectinload(Capture.analyses), selectinload(Capture.files))
+            .options(selectinload(Capture.analyses))
         ).all()
+        counts = _file_counts(s, [capture.id for _bucket, capture in rows])
 
     sections_by_bucket: dict[int, PoIReportSection] = {}
     ordered_bucket_ids: list[int] = []
@@ -199,7 +220,11 @@ def list_poi_sections_for_period(period: ReportPeriod) -> list[PoIReportSection]
             )
             sections_by_bucket[bucket.id] = section
             ordered_bucket_ids.append(bucket.id)
-        section.captures.append(_capture_item_for_section(capture, bucket.title))
+        section.captures.append(
+            _capture_item_for_section(
+                capture, bucket.title, monitor_count=counts.get(capture.id, 0)
+            )
+        )
 
     return [sections_by_bucket[bucket_id] for bucket_id in ordered_bucket_ids]
 
@@ -215,12 +240,13 @@ def list_uncategorized_captures_for_period(period: ReportPeriod) -> list[Capture
                 .where(Capture.started_at >= period.start, Capture.started_at < period.end)
                 .where(CaptureBucket.capture_id.is_(None))
                 .order_by(Capture.started_at.asc(), Capture.id.asc())
-                .options(selectinload(Capture.analyses), selectinload(Capture.files))
+                .options(selectinload(Capture.analyses))
             )
             .unique()
             .all()
         )
-    return [_capture_item_from_capture(capture) for capture in rows]
+        counts = _file_counts(s, [c.id for c in rows])
+    return [_capture_item_from_capture(c, monitor_count=counts.get(c.id, 0)) for c in rows]
 
 
 # Phase 1-D (v0.13.0) — noise filter.

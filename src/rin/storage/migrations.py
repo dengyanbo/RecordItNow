@@ -119,6 +119,28 @@ def _add_poi_candidate_evidence_quote(engine: Engine) -> None:
             )
 
 
+def _add_hot_indexes(engine: Engine) -> None:
+    """v1.3.0: index the hottest filter columns.
+
+    ``Capture.status`` is filtered on every analysis tick
+    (``WHERE status=='captured' ORDER BY started_at``); ``Bucket.status`` by
+    the closure scheduler + reports. Each index is guarded by table existence
+    so a bare fixture engine (no ``create_all`` yet) doesn't error, mirroring
+    the other table-dependent migrations above.
+    """
+
+    with engine.begin() as conn:
+        if conn.exec_driver_sql("PRAGMA table_info(captures)").fetchall():
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_captures_status_started_at "
+                "ON captures (status, started_at)"
+            )
+        if conn.exec_driver_sql("PRAGMA table_info(buckets)").fetchall():
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_buckets_status ON buckets (status)"
+            )
+
+
 # (target_version, sql_or_fn). ``fn`` receives the Engine and runs inside its own transaction.
 MIGRATIONS: list[tuple[int, str | Callable[[Engine], None]]] = [
     # v0.5.0: skill-driven bucket categorization (see rin.skills).
@@ -179,6 +201,10 @@ MIGRATIONS: list[tuple[int, str | Callable[[Engine], None]]] = [
     (6, _add_report_poi_narratives_json),
     # v0.14.0 (Phase 2-A): evidence quote snippet on poi_candidates.
     (7, _add_poi_candidate_evidence_quote),
+    # v1.3.0: index the hot filter columns. Capture.status is filtered on
+    # every analysis tick (WHERE status=='captured' ORDER BY started_at);
+    # Bucket.status is filtered by the closure scheduler + reports.
+    (8, _add_hot_indexes),
 ]
 
 CURRENT_VERSION = max((m[0] for m in MIGRATIONS), default=0)

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, ForeignKey, String, Text, UniqueConstraint, func
+from sqlalchemy import BigInteger, ForeignKey, Index, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -28,6 +28,9 @@ class Base(DeclarativeBase):
 
 class Capture(Base):
     __tablename__ = "captures"
+    # Composite index for the hottest query: analyze_pending filters
+    # WHERE status == 'captured' ORDER BY started_at ASC on every tick.
+    __table_args__ = (Index("ix_captures_status_started_at", "status", "started_at"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     kind: Mapped[str] = mapped_column(String(16))  # "screenshot" | "video"
@@ -194,7 +197,7 @@ class Bucket(Base):
     key: Mapped[str] = mapped_column(String(256), index=True)
     title: Mapped[str] = mapped_column(Text)
     extra_json: Mapped[str | None] = mapped_column(Text, default=None)
-    status: Mapped[str] = mapped_column(String(16), default="active")  # "active" | "archived"
+    status: Mapped[str] = mapped_column(String(16), default="active", index=True)  # "active" | "archived"
     opened_at: Mapped[datetime] = mapped_column(default=func.now(), index=True)
     closed_at: Mapped[datetime | None] = mapped_column(default=None)
     archive_path: Mapped[str | None] = mapped_column(Text, default=None)

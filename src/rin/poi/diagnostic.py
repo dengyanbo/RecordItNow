@@ -13,12 +13,9 @@ import re
 from dataclasses import dataclass, field
 from typing import Literal
 
-from sqlalchemy import select
-
 from ..llm.base import LLMError, Provider
 from ..skills.builtin.topic.skill import TopicSpec
-from ..storage import session
-from ..storage.models import Analysis, Capture, Transcript
+from ._captext import load_capture_text
 
 StepKind = Literal["regex", "keyword", "alias", "llm_judge"]
 
@@ -62,7 +59,7 @@ def diagnose_topic_against_capture(
     LLM step records "skipped".
     """
 
-    bundle = _load_capture(capture_id)
+    bundle = load_capture_text(capture_id)
     if bundle is None:
         return None
     text, summary = bundle
@@ -123,33 +120,6 @@ def diagnose_topic_against_capture(
         capture_text_chars=len(text),
         summary_preview=summary_preview,
     )
-
-
-def _load_capture(capture_id: int) -> tuple[str, str] | None:
-    with session() as s:
-        capture = s.get(Capture, capture_id)
-        if capture is None:
-            return None
-        analyses = list(
-            s.scalars(
-                select(Analysis)
-                .where(Analysis.capture_id == capture_id)
-                .order_by(Analysis.created_at)
-            )
-        )
-        transcripts = list(
-            s.scalars(
-                select(Transcript)
-                .where(Transcript.capture_id == capture_id)
-                .order_by(Transcript.created_at)
-            )
-        )
-
-    summary = "\n".join(row.summary for row in analyses if row.summary).strip()
-    ocr = "\n".join(row.ocr_text for row in analyses if row.ocr_text).strip()
-    transcript = "\n".join(row.text for row in transcripts if row.text).strip()
-    combined = "\n".join(part for part in (summary, ocr, transcript) if part)
-    return combined, summary
 
 
 def _regex_step(pattern: str, text: str) -> DiagnosticStep:

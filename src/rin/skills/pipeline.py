@@ -155,31 +155,44 @@ def load_capture_infos(bucket_id: int) -> list[CaptureInfo]:
                 )
             ).all()
         )
+
+        # Bulk-load related rows once, keyed by capture_id, to avoid the
+        # per-capture N+1 (was 3 queries per capture: analysis, transcript,
+        # files). Ordering by (capture_id, created_at DESC) means the first
+        # row seen per capture is the latest, so setdefault keeps it.
+        latest_analysis: dict[int, Analysis] = {}
+        for a in s.scalars(
+            select(Analysis)
+            .where(Analysis.capture_id.in_(cap_ids))
+            .order_by(Analysis.capture_id, Analysis.created_at.desc())
+        ):
+            latest_analysis.setdefault(a.capture_id, a)
+
+        latest_transcript: dict[int, Transcript] = {}
+        for t in s.scalars(
+            select(Transcript)
+            .where(Transcript.capture_id.in_(cap_ids))
+            .order_by(Transcript.capture_id, Transcript.created_at.desc())
+        ):
+            latest_transcript.setdefault(t.capture_id, t)
+
+        files_by_cap: dict[int, list[CaptureFile]] = {}
+        for f in s.scalars(
+            select(CaptureFile).where(CaptureFile.capture_id.in_(cap_ids))
+        ):
+            files_by_cap.setdefault(f.capture_id, []).append(f)
+
         results: list[CaptureInfo] = []
         for c in rows:
-            latest_analysis = s.scalars(
-                select(Analysis)
-                .where(Analysis.capture_id == c.id)
-                .order_by(Analysis.created_at.desc())
-                .limit(1)
-            ).first()
-            transcript = s.scalars(
-                select(Transcript)
-                .where(Transcript.capture_id == c.id)
-                .order_by(Transcript.created_at.desc())
-                .limit(1)
-            ).first()
-            files = list(
-                s.scalars(
-                    select(CaptureFile).where(CaptureFile.capture_id == c.id)
-                )
-            )
+            analysis = latest_analysis.get(c.id)
+            transcript = latest_transcript.get(c.id)
+            files = files_by_cap.get(c.id, [])
             results.append(
                 CaptureInfo(
                     capture_id=c.id,
                     started_at=c.started_at,
-                    summary=(latest_analysis.summary if latest_analysis else "") or "",
-                    ocr_text=(latest_analysis.ocr_text if latest_analysis else "") or "",
+                    summary=(analysis.summary if analysis else "") or "",
+                    ocr_text=(analysis.ocr_text if analysis else "") or "",
                     transcript_text=(transcript.text if transcript else "") or "",
                     file_paths=tuple(Path(f.path) for f in files),
                 )

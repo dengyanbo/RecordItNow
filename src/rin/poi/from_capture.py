@@ -12,11 +12,8 @@ import re
 from collections import OrderedDict
 from dataclasses import dataclass
 
-from sqlalchemy import select
-
 from ..skills.builtin.topic.skill import TopicSpec
-from ..storage import session
-from ..storage.models import Analysis, Capture, Transcript
+from ._captext import load_capture_text
 from .discovery import (
     _DOMAIN_RE,
     _PHRASE_NAME_RE,
@@ -61,9 +58,10 @@ def mine_topic_from_capture(capture_id: int) -> CaptureSeed | None:
     Returns ``None`` if the capture doesn't exist.
     """
 
-    text, summary = _load_capture_text(capture_id)
-    if text is None:
+    bundle = load_capture_text(capture_id)
+    if bundle is None:
         return None
+    text, summary = bundle
 
     text = text or ""
     summary = summary or ""
@@ -97,34 +95,6 @@ def mine_topic_from_capture(capture_id: int) -> CaptureSeed | None:
         ),
         evidence_quote=evidence_quote,
     )
-
-
-def _load_capture_text(capture_id: int) -> tuple[str | None, str | None]:
-    with session() as s:
-        capture = s.get(Capture, capture_id)
-        if capture is None:
-            return None, None
-        analyses = list(
-            s.scalars(
-                select(Analysis)
-                .where(Analysis.capture_id == capture_id)
-                .order_by(Analysis.created_at)
-            )
-        )
-        transcripts = list(
-            s.scalars(
-                select(Transcript)
-                .where(Transcript.capture_id == capture_id)
-                .order_by(Transcript.created_at)
-            )
-        )
-
-    summary_parts = [row.summary for row in analyses if row.summary]
-    ocr_parts = [row.ocr_text for row in analyses if row.ocr_text]
-    transcript_parts = [row.text for row in transcripts if row.text]
-    summary = "\n".join(summary_parts).strip()
-    combined = "\n".join(summary_parts + ocr_parts + transcript_parts).strip()
-    return combined, summary
 
 
 def _pick_strongest(
