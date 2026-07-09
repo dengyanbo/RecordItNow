@@ -2,6 +2,40 @@
 
 All notable changes to RIN — Record It Now.
 
+## v1.4.0 — Near-instant captures (2026-07-09)
+
+Button-press screenshots now feel instant. No data migration — drop-in
+upgrade. Existing PNG captures remain readable.
+
+### Performance
+
+- **Screenshot feedback is decoupled from encoding.** Capture now grabs
+  every monitor into memory first, shows the *"Screenshot captured"* toast
+  immediately, and encodes afterward. Perceived latency drops from the
+  full encode time (up to ~1.8 s on a busy dual-4K screen) to roughly the
+  grab time (~1–15 ms) — independent of screen content and monitor count.
+- **JPEG is the new default screenshot format.** PNG encoding is
+  content-sensitive: ~110 ms for a simple 4K UI but ~850 ms for a busy /
+  photographic 4K screen (measured), and it scales per monitor. JPEG q85
+  encodes a 4K frame in ~30–50 ms regardless of content. Set
+  *Settings → Capture → Screenshot format* back to `png` for lossless
+  captures if you need them.
+- **Thumbnails are built from the in-memory frame** instead of re-reading
+  the just-written file, and use a collision-safe `monitor-N.thumb.jpg`
+  name so a JPEG capture is never overwritten.
+
+### Fixed
+
+- Capture toasts are now marshalled to the Qt main thread via a queued
+  signal (previously `QSystemTrayIcon.showMessage` could be touched from a
+  worker thread — a latent MT-safety issue).
+
+### Tests
+
+- +5 tests for the JPEG default, thumbnail no-overwrite, PNG round-trip,
+  the grab-before-encode ordering, and the service forwarding format /
+  quality / `on_grabbed`. Suite at **588 passed**.
+
 ## v1.3.0 — Performance & internal cleanup (2026-07-09)
 
 A maintenance release focused on speed and code health. No user-facing
