@@ -37,6 +37,7 @@ from .settings_common import (
     _W_TEXT,
     _W_URL,
     ACCENT_OPTIONS,
+    COPILOT_MODEL_SUGGESTIONS,
     LLM_NAMES,
     OCR_LANGUAGE_OPTIONS,
     REASONING_EFFORTS,
@@ -192,10 +193,20 @@ class _SettingsTabsMixin:
             "`winget install GitHub.cli` then `gh extension install github/gh-copilot`."
         ))
 
-        self._llm_model = QLineEdit()
-        self._llm_model.setPlaceholderText("Provider default (leave blank)")
+        self._llm_model = QComboBox()
+        self._llm_model.setEditable(True)
+        self._llm_model.addItems(COPILOT_MODEL_SUGGESTIONS)
         self._fixed(self._llm_model, _W_TEXT)
+        self._llm_model.setToolTip(
+            "auto = always use Copilot's latest recommended model (never goes "
+            "stale). Or pick / type a specific model. Copilot-CLI only; "
+            "OpenAI/Azure use their own model / deployment names."
+        )
         form.addRow(self._label("Model"), self._llm_model)
+        form.addRow(self._hint(
+            "Leave on auto so analysis follows Copilot's newest models "
+            "automatically — no manual updates when models change."
+        ))
 
         self._effort_combo = QComboBox()
         self._effort_combo.addItems(REASONING_EFFORTS)

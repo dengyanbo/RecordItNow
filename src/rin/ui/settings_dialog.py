@@ -258,7 +258,7 @@ class SettingsDialog(_SettingsTabsMixin, QDialog):
         c.working_hours.idle_threshold_minutes = self._idle_minutes.value()
 
         c.llm.name = self._llm_combo.currentText()
-        c.llm.model = self._llm_model.text().strip()
+        c.llm.model = self._llm_model.currentText().strip()
         c.llm.reasoning_effort = self._effort_combo.currentText()
         c.llm.azure_endpoint = self._azure_endpoint.text().strip() or None
         c.llm.azure_deployment = self._azure_deployment.text().strip() or None
@@ -400,7 +400,7 @@ class SettingsDialog(_SettingsTabsMixin, QDialog):
         self._idle_minutes.setValue(c.working_hours.idle_threshold_minutes)
 
         self._llm_combo.setCurrentText(c.llm.name)
-        self._llm_model.setText(c.llm.model or "")
+        self._llm_model.setCurrentText(c.llm.model or "auto")
         self._effort_combo.setCurrentText(c.llm.reasoning_effort or "")
         self._azure_endpoint.setText(c.llm.azure_endpoint or "")
         self._azure_deployment.setText(c.llm.azure_deployment or "")

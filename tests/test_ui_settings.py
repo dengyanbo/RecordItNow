@@ -23,7 +23,7 @@ def test_dialog_loads_values_from_config(qapp) -> None:
     assert dlg._wh_end.value() == 19
     assert [i for i, cb in enumerate(dlg._weekday_checks) if cb.isChecked()] == [0, 2, 4]
     assert dlg._llm_combo.currentText() == "openai"
-    assert dlg._llm_model.text() == "gpt-4o"
+    assert dlg._llm_model.currentText() == "gpt-4o"
     assert dlg._retention_spin.value() == 14
     assert "F12" in dlg._binding_label.text()
 

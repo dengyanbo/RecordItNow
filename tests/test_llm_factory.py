@@ -17,6 +17,12 @@ def test_factory_copilot_cli() -> None:
     assert p.model == "gpt-5.2"
 
 
+def test_factory_copilot_cli_auto() -> None:
+    p = make_provider(LLMProviderConfig(name="copilot_cli", model="auto"))
+    assert isinstance(p, CopilotCLIProvider)
+    assert p.model == "auto"
+
+
 def test_factory_openai() -> None:
     p = make_provider(LLMProviderConfig(name="openai", model="gpt-4o"))
     assert isinstance(p, OpenAIProvider)

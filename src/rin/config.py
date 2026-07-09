@@ -16,6 +16,11 @@ from pydantic import BaseModel, Field
 
 from . import paths
 
+# Copilot CLI model pins that have been retired. On config load these are
+# rewritten to "auto" so analysis keeps working instead of erroring on a
+# dead model. Add future retired model names here.
+_DEPRECATED_COPILOT_MODELS = frozenset({"claude-opus-4.7-1m-internal"})
+
 
 class TriggerBinding(BaseModel):
     """A single bound input source. Fields are source-dependent and may be empty."""
@@ -40,10 +45,13 @@ class WorkingHours(BaseModel):
 
 class LLMProviderConfig(BaseModel):
     name: Literal["copilot_cli", "openai", "azure", "none"] = "copilot_cli"
-    # Default: Claude Opus 4.7 with 1M context (internal-only) at high reasoning effort.
-    # Override either field in config.toml or via the Settings dialog. For OpenAI/Azure
-    # leave ``reasoning_effort`` empty — it's a Copilot-CLI-only flag.
-    model: str = "claude-opus-4.7-1m-internal"
+    # Default "auto": let the Copilot CLI pick its best current model
+    # (``copilot --model auto``). This never goes stale — when GitHub ships
+    # newer models or retires old ones, RIN follows automatically without a
+    # config change. Set a specific model in config.toml or the Settings
+    # dialog to pin one. For OpenAI/Azure leave ``reasoning_effort`` empty —
+    # it's a Copilot-CLI-only flag.
+    model: str = "auto"
     reasoning_effort: Literal["", "none", "low", "medium", "high", "xhigh", "max"] = "high"
     azure_endpoint: str | None = None
     azure_deployment: str | None = None
@@ -244,7 +252,21 @@ class RinConfig(BaseModel):
             return cfg
         with path.open("rb") as fh:
             data = tomllib.load(fh)
-        return cls(**data)
+        cfg = cls(**data)
+        if cfg._heal_deprecated_models():
+            cfg.save(path)
+        return cfg
+
+    def _heal_deprecated_models(self) -> bool:
+        """Rewrite retired Copilot CLI model pins to ``"auto"`` so analysis
+        keeps working after a specific model is deprecated. Returns ``True``
+        when a change was made so the caller can re-persist the config.
+        """
+
+        if self.llm.name == "copilot_cli" and self.llm.model in _DEPRECATED_COPILOT_MODELS:
+            self.llm.model = "auto"
+            return True
+        return False
 
     def save(self, path: Path | None = None) -> None:
         path = path or paths.config_path()

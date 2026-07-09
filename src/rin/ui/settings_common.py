@@ -21,6 +21,18 @@ log = get_logger(__name__)
 # --- option tables ------------------------------------------------------------
 
 LLM_NAMES = ["copilot_cli", "openai", "azure", "none"]
+# Editable suggestions for the Copilot-CLI model picker. "auto" (first) is
+# the recommended default — the CLI then always uses its best current model,
+# so this list never has to be authoritative. The named entries are a
+# best-effort convenience seed of then-current models; the combo stays
+# editable so users can type any model the CLI accepts.
+COPILOT_MODEL_SUGGESTIONS = [
+    "auto",
+    "claude-sonnet-4.5",
+    "claude-opus-4.7",
+    "gpt-5.4",
+    "gpt-5-mini",
+]
 REPORT_FREQUENCIES = ["daily", "weekly", "off"]
 REASONING_EFFORTS = ["", "none", "low", "medium", "high", "xhigh", "max"]
 WEEKDAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]

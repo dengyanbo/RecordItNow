@@ -99,7 +99,7 @@
 | **触发** | 绑定任意键盘 / 鼠标按钮 / HID / 蓝牙按钮，通过"按下你想要的"流程学习 |
 | **捕获** | 近乎瞬时的多屏截图（默认快速 JPEG，可选无损 PNG）+ 缩略图 JPG sidecar，分屏 MP4 视频（无闪烁 `ddagrab`，`gdigrab` 回退），可选 DirectShow 音频混流，可选 5 秒语音备注 |
 | **存储** | SQLite (WAL + 外键)、ChromaDB 向量、FTS5 报告搜索、按日期分文件夹、可配置保留期 |
-| **LLM 后端** | GitHub Copilot CLI（默认，免 API key）· OpenAI · Azure OpenAI |
+| **LLM 后端** | GitHub Copilot CLI（默认，免 API key；模型 `auto` 始终用 Copilot 最新模型）· OpenAI · Azure OpenAI |
 | **分析** | 每小时后台任务，仅在非工作时间或 idle 时跑；OCR + Whisper + 视觉 LLM。语言可配置。 |
 | **Skills** | 可插拔归类。内置 `support_ticket` 默认识别 16 位 case ID + 19 位 collab task ID（关闭后自动归档）。自定义 skill 放在 `%LOCALAPPDATA%\RIN\skills\` 即可。 |
 | **Topics & PoIs** | 将项目 / 客户 / 人物作为 PoI 跟踪；报告按 PoI 分组。 |

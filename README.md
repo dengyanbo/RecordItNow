@@ -100,7 +100,7 @@ Your captures, database, logs and downloaded models live in
 | **Trigger** | Bind any keyboard key, mouse button, or HID / Bluetooth button via "learn next press" |
 | **Capture** | Near-instant multi-monitor screenshots (fast JPEG default, lossless PNG optional) + thumbnail JPG sidecar, per-monitor MP4 video (flicker-free `ddagrab`, `gdigrab` fallback), optional DirectShow audio mux, optional 5-second voice quick-note |
 | **Storage** | SQLite (WAL + foreign keys), ChromaDB for vectors, FTS5 for report search, dated file tree, configurable retention |
-| **LLM providers** | GitHub Copilot CLI (default, no API key) · OpenAI · Azure OpenAI |
+| **LLM providers** | GitHub Copilot CLI (default, no API key; model `auto` always uses Copilot's latest) · OpenAI · Azure OpenAI |
 | **Analysis** | Hourly background job gated by working hours OR idle, with OCR + Whisper + vision LLM. Languages configurable. |
 | **Skills** | Pluggable categorization. Bundled `support_ticket` recognises 16-digit case IDs + 19-digit collab task IDs out of the box, archives on resolution. Drop your own under `%LOCALAPPDATA%\RIN\skills\`. |
 | **Topics & PoIs** | Track projects/customers/people as Points of Interest; reports grouped per PoI |

@@ -63,6 +63,16 @@ def test_effort_omitted_when_not_set(fake_binary, monkeypatch: pytest.MonkeyPatc
     assert "--effort" not in captured["args"]
 
 
+def test_analyze_text_passes_model_auto(fake_binary, monkeypatch: pytest.MonkeyPatch) -> None:
+    """model='auto' → the CLI is asked to pick its best current model."""
+
+    runner, captured = _make_run(stdout="ok")
+    monkeypatch.setattr("rin.llm.copilot_cli.subprocess.run", runner)
+    CopilotCLIProvider(model="auto").analyze_text("hi")
+    args = captured["args"]
+    assert args[args.index("--model") + 1] == "auto"
+
+
 def test_run_suppresses_console_window_on_windows(
     fake_binary, monkeypatch: pytest.MonkeyPatch
 ) -> None:

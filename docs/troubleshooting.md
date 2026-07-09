@@ -216,6 +216,16 @@ lose keyboard / mouse triggers.
 
 ## Analysis / reports
 
+### Analysis fails with an "unknown / deprecated model" error
+
+The Copilot CLI retires older models over time. RIN ships with the model
+set to **`auto`**, which lets the CLI always pick its best current model,
+so this shouldn't happen on a default install. If you pinned a specific
+model that has since been retired, open **Settings → Analysis → Model**
+and set it back to `auto` (or pick a current model from the list). Configs
+still holding RIN's old hard-coded default are healed to `auto`
+automatically on the next launch.
+
 ### "Nothing new to analyse" but I have captures
 
 Either:
