@@ -2,6 +2,39 @@
 
 All notable changes to RIN — Record It Now.
 
+## v1.3.0 — Performance & internal cleanup (2026-07-09)
+
+A maintenance release focused on speed and code health. No user-facing
+feature or data-format changes — drop-in upgrade.
+
+### Performance
+
+- **Faster database queries as history grows.** Added covering indexes on
+  the hot capture/bucket *status* + *timestamp* columns (schema migration
+  8, applied automatically on first launch). Analysis scans, retention
+  sweeps, and report generation no longer do full-table scans.
+- **Fewer redundant queries.** Removed N+1 query patterns in the skills
+  pipeline and the report generator (capture metadata is now bulk-loaded
+  in a handful of queries instead of one-per-capture), and de-duplicated
+  the PoI capture-text loader.
+- **Lighter tray startup.** The Settings, Reports, and Search windows are
+  no longer imported when the tray first loads — they're pulled in lazily
+  the first time you open one, on top of v1.2.1's lazy-`chromadb` change.
+
+### Changed
+
+- **Internal restructuring (no behavior change).** Three oversized modules
+  were split into focused units for maintainability: the settings dialog
+  (tab builders → a `_SettingsTabsMixin` + shared `settings_common`), the
+  topics/PoIs tab (editor / capture-picker / discovery modules), and the
+  report generator (a `_queries` data-access layer extracted). All public
+  APIs and imports are unchanged.
+
+### Tests
+
+- Merged redundant platform-stub and HID input tests into parametrized
+  equivalents with no coverage lost.
+
 ## v1.2.1 — Recording polish (2026-06-22)
 
 Small follow-ups after the v1.2.0 ddagrab verification. No behavior change
