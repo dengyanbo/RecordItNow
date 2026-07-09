@@ -6,13 +6,18 @@ Two collections live in the same persist directory:
 * ``reports``  — chunked report sections.
 
 Both use cosine distance.
+
+``chromadb`` is imported **lazily** inside :func:`get_client` rather than at
+module top level. It is a heavy native import (~2-3 s, pulls numpy + its own
+deps) and ``rin.storage`` is imported on the startup critical path, so an
+eager import here froze the tray for seconds on first launch. We only pay
+the cost on the first actual vector operation (first analysis or search),
+which already runs off the main thread.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
-
-import chromadb
 
 from .. import paths
 
@@ -35,6 +40,8 @@ def get_client() -> Any:
 
     global _client
     if _client is None:
+        import chromadb  # lazy: keep this heavy import off the startup path
+
         _client = chromadb.PersistentClient(path=str(paths.chroma_dir()))
     return _client
 

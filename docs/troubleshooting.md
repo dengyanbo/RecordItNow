@@ -105,11 +105,21 @@ Duplication API), which is GPU-accelerated and draws the cursor *without*
 flicker. With **Settings → Capture → Recording backend = auto** (the
 default) RIN uses ddagrab automatically when it can.
 
-`ddagrab` needs ffmpeg 6.1+ **and** a real GPU on a local console
-session — it does **not** work over RDP or on GPU-less VMs. In those
-environments RIN falls back to `gdigrab` and the flicker returns. To stop
-it there, turn off **Settings → Capture → Capture the mouse cursor**
-(`draw_cursor=False`); the recording then has no cursor but no flicker.
+`ddagrab` needs ffmpeg 6.1+ **and** a real display adapter on a local
+console session. An **integrated GPU is fine** (Intel UHD/Iris, AMD
+Radeon iGPU) — you do *not* need a discrete card. What it can't use is a
+**virtual/remote display adapter**: it does **not** work over RDP or on
+GPU-less VMs (Hyper-V "Microsoft Hyper-V Video", "Basic Display
+Adapter"). In those environments RIN falls back to `gdigrab` and the
+flicker returns. To stop it there, turn off **Settings → Capture →
+Capture the mouse cursor** (`draw_cursor=False`); the recording then has
+no cursor but no flicker.
+
+> **Note — recording resolution.** `ddagrab` captures each monitor at its
+> **native** resolution (e.g. 3840×2160 on a 4K panel at 150% scaling),
+> while `gdigrab` captured the scaled logical resolution (2560×1440). So
+> after upgrading, recordings on high-DPI displays are sharper but larger.
+> This is expected.
 
 ### Recording stops with a `BrokenPipeError` on RDP
 

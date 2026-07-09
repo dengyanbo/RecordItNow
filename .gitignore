@@ -61,3 +61,6 @@ build/RIN/
 
 # Allow our committed PyInstaller spec (build artefacts ignored above)
 !/scripts/RIN.spec
+
+# Local QA / verification evidence (may contain personal screen captures — never commit)
+/dummyReport/

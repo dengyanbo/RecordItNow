@@ -1,6 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
 from __future__ import annotations
 
+import re
+import tempfile
 from pathlib import Path
 
 import PySide6
@@ -15,6 +17,65 @@ SRC_ROOT = PROJECT_ROOT / "src"
 # entry breaks all relative imports. See scripts/rin_entry.py.
 MAIN_SCRIPT = SPEC_DIR / "rin_entry.py"
 PYSIDE_PLUGIN_ROOT = Path(PySide6.__file__).resolve().parent / "plugins"
+
+
+def _read_rin_version() -> str:
+    """Read ``__version__`` from src/rin/__init__.py so the .exe metadata
+    never drifts from the package version."""
+
+    init = SRC_ROOT / "rin" / "__init__.py"
+    match = re.search(r'__version__\s*=\s*"([^"]+)"', init.read_text(encoding="utf-8"))
+    return match.group(1) if match else "0.0.0"
+
+
+def _make_version_file() -> str:
+    """Generate a Windows VS_VERSION_INFO resource file and return its path.
+
+    Without this, RIN.exe reports a blank FileVersion / ProductVersion,
+    which makes version verification (e.g. ``(Get-Item RIN.exe).VersionInfo``)
+    impossible. Written to a temp file (not committed).
+    """
+
+    version = _read_rin_version()
+    parts = [int(p) for p in re.findall(r"\d+", version)][:4]
+    while len(parts) < 4:
+        parts.append(0)
+    vtuple = tuple(parts)
+    text = f"""# UTF-8
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers={vtuple},
+    prodvers={vtuple},
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo([
+      StringTable('040904B0', [
+        StringStruct('CompanyName', 'RIN Contributors'),
+        StringStruct('FileDescription', 'RIN \u2014 Record It Now'),
+        StringStruct('FileVersion', '{version}'),
+        StringStruct('InternalName', 'RIN'),
+        StringStruct('LegalCopyright', 'MIT License'),
+        StringStruct('OriginalFilename', 'RIN.exe'),
+        StringStruct('ProductName', 'RIN \u2014 Record It Now'),
+        StringStruct('ProductVersion', '{version}')
+      ])
+    ]),
+    VarFileInfo([VarStruct('Translation', [1033, 1200])])
+  ]
+)
+"""
+    out = Path(tempfile.gettempdir()) / "rin_version_info.txt"
+    out.write_text(text, encoding="utf-8")
+    return str(out)
+
+
+VERSION_FILE = _make_version_file()
 
 chromadb_datas, chromadb_binaries, chromadb_hiddenimports = collect_all(
     "chromadb",
@@ -182,6 +243,7 @@ exe = EXE(
     upx=False,
     console=False,
     disable_windowed_traceback=False,
+    version=VERSION_FILE,
 )
 coll = COLLECT(
     exe,

@@ -2,6 +2,45 @@
 
 All notable changes to RIN — Record It Now.
 
+## v1.2.1 — Recording polish (2026-06-22)
+
+Small follow-ups after the v1.2.0 ddagrab verification. No behavior change
+to capture; drop-in upgrade.
+
+### Added
+
+- **`RIN.exe` now carries Windows version metadata.** Previously the
+  executable reported a blank `FileVersion` / `ProductVersion`. `RIN.spec`
+  generates a VS_VERSION_INFO resource from `__version__`, so
+  `(Get-Item RIN.exe).VersionInfo.ProductVersion` now reports the real
+  version — useful for support and automated version checks.
+
+### Performance
+
+- **Faster, smoother first launch.** `chromadb` (a heavy ~2-3 s native
+  import that also pulls in numpy) was imported eagerly via
+  `rin.storage`, which sits on the startup critical path — so the tray and
+  the whole machine stuttered for several seconds on first launch (made
+  worse by Windows Defender scanning its DLLs the first time). It's now
+  imported lazily on the first vector operation (first analysis or search,
+  both off the main thread). Measured `import rin.ui.tray` dropped from
+  ~4.9 s to ~2.6 s, and `chromadb` no longer loads at launch.
+
+### Docs
+
+- Documented that the `ddagrab` backend captures each monitor at its
+  **native resolution** (e.g. 3840×2160 on a 4K panel at 150% scaling),
+  whereas `gdigrab` captured the scaled logical resolution (2560×1440).
+  ddagrab recordings are therefore sharper but larger — this is expected.
+
+### Verification
+
+- v1.2.0's flicker fix was confirmed PASS on real hardware (RTX 2070,
+  dual-4K @150%, local console, ffmpeg 8.1.1): backend resolved to
+  `ddagrab`, the on-screen cursor no longer flickered (human-confirmed),
+  the cursor is present in the recording, and the gdigrab `draw_cursor`
+  toggle works (verified by PSNR pixel comparison).
+
 ## v1.2.0 — Flicker-free recording (ddagrab) (2026-06-22)
 
 Recording no longer makes the mouse cursor flicker on screen. No

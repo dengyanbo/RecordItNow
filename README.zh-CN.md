@@ -2,7 +2,7 @@
 
 > **Languages:** [English](README.md) · **中文** · **开发或贡献？** 见 [`docs/DEVELOPING.md`](docs/DEVELOPING.md)
 
-[![tests](https://img.shields.io/badge/tests-581%20%2F%20581-brightgreen)](docs/DEVELOPING.md#testing)
+[![tests](https://img.shields.io/badge/tests-584%20%2F%20584-brightgreen)](docs/DEVELOPING.md#testing)
 [![python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)](#要求)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D4)](#要求)
@@ -202,8 +202,8 @@ PoI 不是单纯的标签——它驱动整条分析和搜索管线：
 
 ## 项目状态
 
-- 当前版本：**v1.2.0**（2026-06-22 发布）
-- **581 / 581 pytest 通过** · ruff 清洁
+- 当前版本：**v1.2.1**（2026-06-22 发布）
+- **584 / 584 pytest 通过** · ruff 清洁
 - CI 在 Windows + Python 3.11 / 3.12 上绿
 - 完整发布历史：[`docs/CHANGELOG.md`](docs/CHANGELOG.md)
 - 想贡献或扩展？读 [`docs/DEVELOPING.md`](docs/DEVELOPING.md)
