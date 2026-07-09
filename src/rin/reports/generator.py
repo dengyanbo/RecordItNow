@@ -6,25 +6,14 @@ from datetime import datetime, time, timedelta
 from pathlib import Path
 from typing import Literal
 
-from sqlalchemy import func, select
-from sqlalchemy.orm import selectinload
-
 from ..analysis import structured as structured_summary
 from ..config import RinConfig
 from ..llm import make_provider
 from ..llm.base import LLMError, Provider, ProviderUnavailable
 from ..paths import reports_dir
-from ..storage import session
-from ..storage.models import (
-    Analysis,
-    Bucket,
-    Capture,
-    CaptureBucket,
-    CaptureFile,
-    Report,
-    ReportText,
-)
+from ..storage.models import Analysis, Bucket, Capture
 from ..utils.logging import get_logger
+from . import _queries
 from .integrations.base import CalendarEvent
 from .integrations.factory import make_calendar_provider
 from .templates import (
@@ -142,30 +131,11 @@ def weekly_period(now: datetime | None = None) -> ReportPeriod:
 def _file_counts(s, cap_ids: list[int]) -> dict[int, int]:
     """Bulk monitor-file counts keyed by capture_id (one grouped query)."""
 
-    if not cap_ids:
-        return {}
-    return dict(
-        s.execute(
-            select(CaptureFile.capture_id, func.count())
-            .where(CaptureFile.capture_id.in_(cap_ids))
-            .group_by(CaptureFile.capture_id)
-        ).all()
-    )
+    return _queries.file_counts(s, cap_ids)
 
 
 def list_captures_for_period(period: ReportPeriod) -> list[CaptureItem]:
-    with session() as s:
-        rows = (
-            s.scalars(
-                select(Capture)
-                .where(Capture.started_at >= period.start, Capture.started_at < period.end)
-                .order_by(Capture.started_at.asc(), Capture.id.asc())
-                .options(selectinload(Capture.analyses))
-            )
-            .unique()
-            .all()
-        )
-        counts = _file_counts(s, [c.id for c in rows])
+    rows, counts = _queries.captures_for_window(period.start, period.end)
     return [_capture_item_from_capture(c, monitor_count=counts.get(c.id, 0)) for c in rows]
 
 
@@ -190,22 +160,15 @@ def list_poi_sections_for_period(period: ReportPeriod) -> list[PoIReportSection]
     report window. Sections are sorted by ``bucket.opened_at`` ascending.
     """
 
-    with session() as s:
-        rows = s.execute(
-            select(Bucket, Capture)
-            .join(CaptureBucket, CaptureBucket.bucket_id == Bucket.id)
-            .join(Capture, Capture.id == CaptureBucket.capture_id)
-            .where(Capture.started_at >= period.start, Capture.started_at < period.end)
-            .order_by(
-                Bucket.opened_at.asc(),
-                Bucket.id.asc(),
-                Capture.started_at.asc(),
-                Capture.id.asc(),
-            )
-            .options(selectinload(Capture.analyses))
-        ).all()
-        counts = _file_counts(s, [capture.id for _bucket, capture in rows])
+    rows, counts = _queries.bucket_capture_rows_for_window(period.start, period.end)
+    return _sections_from_bucket_capture_rows(period, rows, counts)
 
+
+def _sections_from_bucket_capture_rows(
+    period: ReportPeriod,
+    rows: list[tuple[Bucket, Capture]],
+    counts: dict[int, int],
+) -> list[PoIReportSection]:
     sections_by_bucket: dict[int, PoIReportSection] = {}
     ordered_bucket_ids: list[int] = []
     for bucket, capture in rows:
@@ -232,20 +195,7 @@ def list_poi_sections_for_period(period: ReportPeriod) -> list[PoIReportSection]
 def list_uncategorized_captures_for_period(period: ReportPeriod) -> list[CaptureItem]:
     """Captures in period that have zero rows in ``capture_buckets``."""
 
-    with session() as s:
-        rows = (
-            s.scalars(
-                select(Capture)
-                .outerjoin(CaptureBucket, CaptureBucket.capture_id == Capture.id)
-                .where(Capture.started_at >= period.start, Capture.started_at < period.end)
-                .where(CaptureBucket.capture_id.is_(None))
-                .order_by(Capture.started_at.asc(), Capture.id.asc())
-                .options(selectinload(Capture.analyses))
-            )
-            .unique()
-            .all()
-        )
-        counts = _file_counts(s, [c.id for c in rows])
+    rows, counts = _queries.uncategorized_captures_for_window(period.start, period.end)
     return [_capture_item_from_capture(c, monitor_count=counts.get(c.id, 0)) for c in rows]
 
 
@@ -341,29 +291,7 @@ def _load_cached_narratives(
     bucket id as a string so it round-trips through JSON safely.
     """
 
-    import json as _json
-
-    with session() as s:
-        row = s.scalars(
-            select(Report).where(
-                Report.kind == period.kind,
-                Report.period_start == period.start,
-                Report.period_end == period.end,
-            )
-        ).first()
-        if row is None:
-            return None, {}
-        report_id = row.id
-        raw = row.poi_narratives_json
-    if not raw:
-        return report_id, {}
-    try:
-        data = _json.loads(raw)
-    except (ValueError, TypeError):
-        return report_id, {}
-    if not isinstance(data, dict):
-        return report_id, {}
-    return report_id, {str(k): str(v) for k, v in data.items() if v}
+    return _queries.load_cached_narratives(period.kind, period.start, period.end)
 
 
 def populate_poi_narratives(
@@ -413,16 +341,7 @@ def populate_poi_narratives(
 
 
 def _persist_poi_narratives(report_id: int, narratives: dict[str, str]) -> None:
-    import json as _json
-
-    with session() as s:
-        row = s.get(Report, report_id)
-        if row is None:
-            return
-        if not narratives:
-            row.poi_narratives_json = None
-        else:
-            row.poi_narratives_json = _json.dumps(narratives, ensure_ascii=False)
+    _queries.persist_poi_narratives(report_id, narratives)
 
 
 def generate_report(
@@ -479,32 +398,13 @@ def generate_report(
     path = out_dir / filename
     path.write_text(body, encoding="utf-8")
 
-    with session() as s:
-        existing = s.scalars(
-            select(Report).where(
-                Report.kind == period.kind,
-                Report.period_start == period.start,
-                Report.period_end == period.end,
-            )
-        ).first()
-        if existing is not None:
-            existing.markdown_path = str(path)
-            report = existing
-        else:
-            report = Report(
-                kind=period.kind,
-                period_start=period.start,
-                period_end=period.end,
-                markdown_path=str(path),
-            )
-            s.add(report)
-        s.flush()
-        report_id = report.id
-        report_text = s.get(ReportText, report_id)
-        if report_text is None:
-            s.add(ReportText(report_id=report_id, body_text=body))
-        else:
-            report_text.body_text = body
+    report_id = _queries.upsert_report_text(
+        kind=period.kind,
+        period_start=period.start,
+        period_end=period.end,
+        markdown_path=path,
+        body=body,
+    )
 
     if layout == "per_poi":
         _persist_poi_narratives(report_id, narratives)
@@ -830,5 +730,4 @@ def _format_poi_material(
 
 
 def _orm_analyses_for(_cap_id: int) -> list[Analysis]:  # pragma: no cover - convenience helper
-    with session() as s:
-        return list(s.scalars(select(Analysis).where(Analysis.capture_id == _cap_id)).all())
+    return _queries.analyses_for_capture(_cap_id)
