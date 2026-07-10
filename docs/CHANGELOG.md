@@ -2,6 +2,34 @@
 
 All notable changes to RIN — Record It Now.
 
+## v1.4.1 — Always-current analysis model (2026-07-09)
+
+Keeps analysis working as GitHub ships and retires Copilot models. No
+data migration; existing configs self-heal on first launch.
+
+### Changed
+
+- **The Copilot CLI model now defaults to `auto`.** Copilot picks its best
+  current model on every call (`copilot --model auto`), so RIN follows new
+  models — and survives retired ones — with no config change. Previously
+  RIN pinned a specific internal model (`claude-opus-4.7-1m-internal`) that
+  was being deprecated, which would have broken analysis.
+- **Settings → Analysis → Model is now an editable dropdown** seeded with
+  `auto` (recommended) plus a few current named models, instead of a
+  free-text box. Type any model the CLI accepts to pin one.
+
+### Fixed
+
+- **Configs pinned to RIN's old hard-coded model self-heal to `auto`** on
+  the next launch, so existing installs don't break when that model is
+  retired. User-chosen models are left untouched.
+
+### Tests
+
+- +7 tests (config default + deprecated-model heal matrix, factory routes
+  `auto`, provider passes `--model auto`, settings combo round-trip). Suite
+  at **595 passed**.
+
 ## v1.4.0 — Near-instant captures (2026-07-09)
 
 Button-press screenshots now feel instant. No data migration — drop-in
